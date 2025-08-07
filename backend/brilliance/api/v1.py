@@ -1,6 +1,8 @@
 # app.py
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from dotenv import load_dotenv
+import os
 from brilliance.agents.workflows import (
     orchestrate_research,
     multi_source_search,
@@ -11,6 +13,10 @@ import logging
 
 load_dotenv()
 app = Flask(__name__)
+
+# Allow requests from the deployed front-end
+frontend_origin = os.getenv("FRONTEND_URL", "*")
+CORS(app, origins=frontend_origin)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
