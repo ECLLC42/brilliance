@@ -1,0 +1,134 @@
+# pubmed_tool.py
+"""Tool for retrieving recent PubMed articles via NCBI E-utilities.
+Returns a concise string with Title (Year), Authors, Abstract and URL for each hit.
+"""
+from __future__ import annotations
+
+import httpx
+import xml.etree.ElementTree as ET
+from urllib.parse import quote_plus
+from typing import List, Any
+
+
+def _safe_get_text(element: Any, path: str, default: str = "") -> str:
+    """Safely extract text from XML element with fallback."""
+    if element is None:
+        return default
+    text = element.findtext(path, default=default)
+    return str(text).strip() if text is not None else default
+
+
+def _safe_get_authors(article: Any) -> str:
+    """Safely extract authors from PubMed article."""
+    if article is None:
+        return "N/A"
+    
+    authors_el = article.findall(".//Author")
+    if not authors_el:
+        return "N/A"
+    
+    authors: List[str] = []
+    for a in authors_el:
+        if a is None:
+            continue
+        lname = a.findtext("LastName")
+        fname = a.findtext("ForeName")
+        if lname and fname:
+            authors.append(f"{fname} {lname}")
+        elif lname:
+            authors.append(lname)
+        elif fname:
+            authors.append(fname)
+    
+    return ", ".join(authors) if authors else "N/A"
+
+
+def _fetch(query: str, max_results: int = 3) -> str:
+    base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+    
+    # 1. ESearch – get the list of PubMed IDs, most recent first
+    esearch_url = (
+        f"{base}esearch.fcgi?db=pubmed&term={quote_plus(query)}"
+        f"&retmax={max_results}&sort=pub+date&retmode=json"
+    )
+    
+    try:
+        resp = httpx.get(esearch_url, timeout=10)
+        resp.raise_for_status()
+        search_data = resp.json()
+        
+        if not isinstance(search_data, dict):
+            return "Error: Invalid response format from PubMed search."
+            
+        esearch_result = search_data.get("esearchresult", {})
+        if not isinstance(esearch_result, dict):
+            return "Error: Invalid search result format."
+            
+        ids = esearch_result.get("idlist", [])
+        if not isinstance(ids, list):
+            return "Error: Invalid ID list format."
+            
+    except Exception as e:
+        return f"Error searching PubMed: {str(e)}"
+
+    if not ids:
+        return "No papers found."
+
+    # 2. EFetch – retrieve the article metadata & abstract
+    id_str = ",".join(str(id) for id in ids if str(id).strip())
+    if not id_str:
+        return "No valid paper IDs found."
+        
+    efetch_url = (
+        f"{base}efetch.fcgi?db=pubmed&id={id_str}&retmode=xml"
+    )
+    
+    try:
+        xml_resp = httpx.get(efetch_url, timeout=10)
+        xml_resp.raise_for_status()
+        xml_text = xml_resp.text
+    except Exception as e:
+        return f"Error fetching PubMed details: {str(e)}"
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        return f"Error parsing PubMed XML: {str(e)}"
+
+    parts: List[str] = []
+    for article in root.findall(".//PubmedArticle"):
+        try:
+            art = article.find(".//Article")
+            if art is None:
+                continue
+                
+            # Safely extract title
+            title = _safe_get_text(art, "ArticleTitle", "No title")
+            
+            # Safely extract year
+            year = article.findtext(".//PubDate/Year", default="N/A")
+            
+            # Safely extract authors
+            authors_str = _safe_get_authors(article)
+            
+            # Safely extract abstract
+            abstract = article.findtext("Abstract/AbstractText", default="No abstract").strip()
+            
+            # Safely extract PMID and create URL
+            pmid = article.findtext(".//PMID")
+            url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else ""
+
+            parts.append(
+                f"{title} ({year}) by {authors_str}\nAbstract: {abstract}\nURL: {url}"
+            )
+            
+        except Exception:
+            # Skip malformed articles but continue processing others
+            continue
+
+    return "\n\n".join(parts) if parts else "No papers found."
+
+
+def search_pubmed(query: str, max_results: int = 3) -> str:
+    """Search PubMed for papers matching the query."""
+    return _fetch(query, max_results)
