@@ -1,0 +1,72 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyo
+*.pyd
+
+# Virtual environments
+env/
+venv/
+.venv/
+
+# Poetry
+poetry.lock
+
+# Environment & secrets
+.env
+*.env
+
+# Build / distribution
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Node / React
+node_modules/
+frontend/build/
+frontend/dist/
+*.log
+
+# Coverage & test outputs
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE & editor settings
+.vscode/
+.idea/
+*.swp
+
+# Heroku
+.heroku/
+
+# Database
+*.sqlite3
+
+# Misc
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.vercel
+
+# Additional frontend ignores
+coverage/
+.eslintcache
+.parcel-cache/
+.cache/
+.turbo/
+.tmp/
+.tmp/**
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.tgz
+Thumbs.db
+.directory
