@@ -1,6 +1,8 @@
-Brilliance — Multi‑source Research Assistant with AI Synthesis
+#Brilliance — Multi‑source Research Assistant with AI Synthesis
 
-Brilliance is a full‑stack app that gathers recent papers from multiple scholarly sources, then produces an AI‑generated synthesis tailored to your query. It’s designed for quick local testing and simple cloud deployment.
+##Brilliance is a full‑stack app that gathers recent papers from multiple scholarly sources, then produces an AI‑generated synthesis tailored to your query. It’s designed for quick local testing and simple cloud deployment.
+
+##To use our existing react frontend, set FRONTEND_URL=brilliance-frontend.vercel.app
 
 ### Highlights
 - **Multi‑source search**: arXiv, PubMed, OpenAlex
