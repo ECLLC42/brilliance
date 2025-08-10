@@ -55,3 +55,5 @@ yarn-debug.log*
 yarn-error.log*
 #frontend/
 
+frontend/
+codex/
