@@ -24,9 +24,21 @@ DEPTH_LIMITS = {"low": 3, "med": 5, "high": 10}
 def _parse_allowed_origins() -> list[str]:
     # Prefer FRONTEND_URL env (comma-separated), else CORS_ORIGINS, else '*'
     raw = os.getenv("FRONTEND_URL") or os.getenv("CORS_ORIGINS") or "*"
-    if raw.strip() == "*":
+    raw = (raw or "").strip()
+    if raw == "*":
         return ["*"]
-    return [o.strip() for o in raw.split(",") if o.strip()]
+    # Heroku users sometimes set values like '@https://example.com' when using file-style config; strip leading '@'
+    if raw.startswith("@"):
+        raw = raw[1:].strip()
+    origins: list[str] = []
+    for origin in raw.split(","):
+        trimmed = origin.strip()
+        if not trimmed:
+            continue
+        if trimmed.startswith("@"):
+            trimmed = trimmed[1:].strip()
+        origins.append(trimmed)
+    return origins
 
 
 def _get_client_ip() -> str:
@@ -154,6 +166,19 @@ def create_app() -> Flask:
         # Try to hide server banner
         resp.headers.pop("Server", None)
         return resp
+
+    @app.get("/")
+    def root() -> tuple[dict, int] | object:
+        # Redirect to configured frontend if available; else show minimal API info
+        dest_raw = (os.getenv("FRONTEND_URL") or "").strip()
+        if dest_raw:
+            if dest_raw.startswith("@"):
+                dest_raw = dest_raw[1:].strip()
+            # Use the first configured origin if multiple are provided
+            dest = dest_raw.split(",")[0].strip()
+            if dest:
+                return redirect(dest, code=302)
+        return {"message": "Brilliance API", "endpoints": ["/health", "/limits", "POST /research"]}, 200
 
     @app.get("/limits")
     def limits() -> tuple[dict, int]:
