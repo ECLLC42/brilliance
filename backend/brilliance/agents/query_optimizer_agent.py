@@ -6,6 +6,7 @@ Converts natural language research questions into optimized academic keyword sea
 """
 
 from agents import Agent, Runner
+import os
 from typing import List
 from dataclasses import dataclass
 from datetime import datetime
@@ -56,7 +57,7 @@ academic_query_optimizer = Agent(
   "keywords": ["keyword 1", "keyword 2", "keyword 3", …]
 }
 ```""",
-    model="o3-mini",
+    model=os.getenv("OPTIMIZER_MODEL", "gpt-5-mini"),
     output_type=OptimizedQuery
 )
 

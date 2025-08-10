@@ -1,1 +1,1 @@
-web: uvicorn backend.brilliance.api.v1:app --host=0.0.0.0 --port=$PORT
+web: gunicorn backend.brilliance.api.v1:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60

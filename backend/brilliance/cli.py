@@ -18,9 +18,9 @@ import asyncio
 import sys
 from textwrap import indent
 
-from agents_workflow import multi_source_search, prepare_results_for_synthesis
+from brilliance.agents.workflows import multi_source_search, prepare_results_for_synthesis
 from dotenv import load_dotenv, find_dotenv
-from synthesis_tool import synthesize_papers_async
+from brilliance.synthesis.synthesis_tool import synthesize_papers_async
 
 
 def cyan(text: str) -> str:

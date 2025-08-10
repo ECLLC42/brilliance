@@ -1,7 +1,10 @@
-Flask
-flask-cors
+Flask==3.0.0
+flask-cors==4.0.0
+python-dotenv==1.0.1
+httpx==0.27.0
+feedparser==6.0.10
+gunicorn==21.2.0
+
+# Agents stack (left flexible to avoid version conflicts)
 openai-agents
 openai
-python-dotenv
-httpx
-feedparser

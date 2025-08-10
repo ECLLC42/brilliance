@@ -6,11 +6,12 @@ Main orchestration workflow for multi-source scholarly research with query optim
 import argparse
 import asyncio
 import os
-from typing import Dict, Any
+from datetime import datetime
+from typing import Dict, Any, List, Tuple
 from brilliance.tools.arxiv import search_arxiv
 from brilliance.tools.pubmed import search_pubmed
 from brilliance.tools.openalex import search_openalex
-from brilliance.agents.query_optimizer_agent import optimize_academic_query
+from brilliance.agents.query_optimizer_agent import optimize_academic_query, _fallback_optimization
 from brilliance.agents.build_query import build_api_queries
 from brilliance.synthesis.synthesis_tool import synthesize_papers_async
 
@@ -26,27 +27,33 @@ async def multi_source_search(query: str, max_results: int = 3) -> Dict[str, Any
     Returns:
         Dictionary with results from all sources
     """
-    # Step 1: Optimize the query
-    optimized = await optimize_academic_query(query)
+    # Step 1: Optimize the query (with fallback)
+    try:
+        optimized = await optimize_academic_query(query)
+    except Exception:
+        optimized = _fallback_optimization(query)
 
-    # Step 2: Build API-specific queries
+    # Normalize missing agent fields (agent may return keywords only)
+    if not getattr(optimized, "preferred_year", None):
+        optimized.preferred_year = datetime.now().year - 1
+    for k in ("disease_terms", "intervention_terms", "outcome_terms", "study_type_terms"):
+        if not getattr(optimized, k, None):
+            setattr(optimized, k, [])
+
+    # Step 2: Build API-specific queries (URLs)
     api_queries = build_api_queries(optimized, max_results)
 
-    # Step 3: Search with optimized queries
-    arxiv_results = search_arxiv(
-            api_queries["arxiv"].split("search_query=")[1].split("&")[0] if "arxiv" in api_queries else query,
-            max_results
-        )
-    
-    pubmed_results = search_pubmed(
-            " ".join(optimized.keywords),
-            max_results
-        )
-    
-    openalex_results = search_openalex(
-            " ".join(optimized.keywords),
-            max_results
-        )
+    # Step 3: Search with builder URLs where available (tools accept full URLs)
+    arxiv_query = api_queries.get("arxiv") or " ".join(optimized.keywords)
+    pubmed_query = api_queries.get("pubmed", {}).get("search_url") if isinstance(api_queries.get("pubmed"), dict) else None
+    openalex_query = api_queries.get("openalex") or " ".join(optimized.keywords)
+
+    # Pass preferred year to arXiv via env when unset
+    if not os.getenv("ARXIV_MIN_YEAR") and getattr(optimized, "preferred_year", None):
+        os.environ["ARXIV_MIN_YEAR"] = str(optimized.preferred_year)
+    arxiv_results = search_arxiv(arxiv_query, max_results)
+    pubmed_results = search_pubmed(pubmed_query or " ".join(optimized.keywords), max_results)
+    openalex_results = search_openalex(openalex_query, max_results)
     
     return {
         "arxiv": arxiv_results,
@@ -79,18 +86,10 @@ def prepare_results_for_synthesis(results: Dict[str, Any]) -> Dict[str, Any]:
             if content and not content.startswith("No papers found") and not content.startswith("Error"):
                 source_names.append(source)
                 
-                # More robust paper counting - look for multiple title patterns
-                title_patterns = ["Title:", "title:", "**Title:**", "## Title", "Paper Title:"]
-                paper_count = 0
-                for pattern in title_patterns:
-                    paper_count = max(paper_count, content.count(pattern))
-                
-                # Also count by looking for common paper metadata patterns
-                if paper_count == 0:
-                    # Fallback: count by author patterns or DOI patterns
-                    author_count = content.count("Authors:") + content.count("Author:")
-                    doi_count = content.count("DOI:") + content.count("doi:")
-                    paper_count = max(author_count, doi_count)
+                # Count by URLs, which all tool outputs include
+                paper_count = content.count("\nURL: ")
+                if paper_count == 0 and "URL: " in content:
+                    paper_count = content.count("URL: ")
                 
                 # If still no papers found but content exists, assume at least 1
                 if paper_count == 0 and len(content) > 100:  # Substantial content
@@ -124,6 +123,103 @@ def prepare_results_for_synthesis(results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _tokenize_for_scoring(text: str) -> List[str]:
+    if not text:
+        return []
+    import re
+    return [t for t in re.findall(r"[a-zA-Z0-9]+", text.lower()) if t]
+
+
+def _parse_source_chunks(source_text: str) -> List[Tuple[str, Dict[str, Any]]]:
+    """Split tool output into individual paper chunks and extract lightweight metadata.
+    Returns list of (chunk_text, metadata) where metadata includes title, year, url.
+    """
+    if not isinstance(source_text, str) or not source_text.strip():
+        return []
+    chunks = [c.strip() for c in source_text.strip().split("\n\n") if c.strip()]
+    parsed: List[Tuple[str, Dict[str, Any]]] = []
+    for c in chunks:
+        title_line = c.split("\n", 1)[0] if "\n" in c else c
+        title = title_line.split(" (", 1)[0]
+        year = "N/A"
+        if "(" in title_line and ")" in title_line:
+            try:
+                year = title_line.split("(", 1)[1].split(")", 1)[0]
+            except Exception:
+                year = "N/A"
+        url = ""
+        if "URL:" in c:
+            try:
+                url = c.split("URL:", 1)[1].strip().split()[0]
+            except Exception:
+                url = ""
+        parsed.append((c, {"title": title, "year": year, "url": url}))
+    return parsed
+
+
+def _score_chunk(query: str, meta: Dict[str, Any]) -> float:
+    """Heuristic relevance score: keyword overlap (title weighted) + recency."""
+    title = meta.get("title", "")
+    year = meta.get("year", "N/A")
+    query_tokens = set(_tokenize_for_scoring(query))
+    title_tokens = set(_tokenize_for_scoring(title))
+    overlap = len(query_tokens & title_tokens)
+    # Title overlap weight 2.0
+    score = overlap * 2.0
+    # Recency boost
+    try:
+        y = int(year)
+        from datetime import datetime
+        age = max(0, datetime.now().year - y)
+        score += max(0.0, 3.0 - (age * 0.5))  # up to +3, decays with age
+    except Exception:
+        pass
+    return score
+
+
+def rank_and_trim_results(all_results: Dict[str, Any], query: str, max_total: int) -> Dict[str, Any]:
+    """Rank papers across sources and trim to max_total overall (not per source).
+    Falls back to returning original results if parsing fails.
+    """
+    try:
+        combined: List[Tuple[str, str, float]] = []  # (source, chunk_text, score)
+        for source in ["arxiv", "pubmed", "openalex"]:
+            for chunk_text, meta in _parse_source_chunks(all_results.get(source, "")):
+                score = _score_chunk(query, meta)
+                combined.append((source, chunk_text, score))
+        if not combined:
+            return all_results
+        # Deduplicate by URL or title
+        seen_keys = set()
+        deduped: List[Tuple[str, str, float]] = []
+        for source, chunk_text, score in combined:
+            key = None
+            if "URL:" in chunk_text:
+                try:
+                    key = chunk_text.split("URL:", 1)[1].strip()
+                except Exception:
+                    key = None
+            if not key:
+                key = chunk_text.split("\n", 1)[0]
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped.append((source, chunk_text, score))
+        # Rank and take top K
+        deduped.sort(key=lambda x: x[2], reverse=True)
+        chosen = deduped[: max_total]
+        # Rebuild per-source strings
+        out: Dict[str, Any] = dict(all_results)
+        grouped: Dict[str, List[str]] = {"arxiv": [], "pubmed": [], "openalex": []}
+        for source, chunk_text, _ in chosen:
+            grouped[source].append(chunk_text)
+        for source in grouped:
+            out[source] = "\n\n".join(grouped[source]) if grouped[source] else "No results"
+        return out
+    except Exception:
+        return all_results
+
+
 async def orchestrate_research(user_query: str, max_results: int = 3) -> Dict[str, Any]:
     """
     Main orchestration function for research queries with optimization.
@@ -135,13 +231,15 @@ async def orchestrate_research(user_query: str, max_results: int = 3) -> Dict[st
     Returns:
         Comprehensive research results with optimization metadata and synthesis
     """
-    print(f"🔍 Optimizing query: {user_query}")
+    print(f"🔍 Optimizing query (len={len(user_query)})")
     
     # Search across sources with optimization
     search_results = await multi_source_search(user_query, max_results)
+    # Rank globally and trim to the requested max total
+    trimmed_results = rank_and_trim_results(search_results, user_query, max_results)
     
     # Prepare results for agent synthesis (no manual ranking)
-    final_results = prepare_results_for_synthesis(search_results)
+    final_results = prepare_results_for_synthesis(trimmed_results)
     
     # Add optimization summary
     final_results["optimization"] = {
@@ -164,6 +262,9 @@ async def orchestrate_research(user_query: str, max_results: int = 3) -> Dict[st
                 combined_papers += f"\n=== {source.upper()} Results ===\n{content}\n"
         
         # Add user query context for synthesis
+        max_chars = int(os.getenv("MAX_COMBINED_CHARS", "20000"))
+        if len(combined_papers) > max_chars:
+            combined_papers = combined_papers[:max_chars]
         synthesis_prompt = f"User Query: {user_query}\n\nPaper Data:\n{combined_papers}"
         
         # Generate AI synthesis
@@ -178,8 +279,8 @@ async def orchestrate_research(user_query: str, max_results: int = 3) -> Dict[st
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Scholarly multi-source research assistant")
     parser.add_argument("query", nargs="?", help="Research question. If omitted, you will be prompted interactively.")
-    parser.add_argument("--model", choices=["o3-mini", "grok-4"], default="o3-mini",
-                        help="LLM model for query optimisation (default: o3-mini)")
+    parser.add_argument("--model", choices=["gpt-5-mini", "grok-4"], default="gpt-5-mini",
+                        help="LLM model for query optimisation (default: gpt-5-mini)")
     args = parser.parse_args()
 
     # Configure xAI SDK if GROK selected. Users already set GROK_API_KEY in env.
@@ -187,9 +288,7 @@ if __name__ == "__main__":
         # xAI python SDK expects XAI_API_KEY
         os.environ.setdefault("XAI_API_KEY", os.getenv("GROK_API_KEY", ""))
 
-    # Use Grok only for synthesis; keep optimizer on default OpenAI model
-    from synthesis_tool import _summarizer
-    _summarizer.model = args.model
+    # Model selection is driven by environment variables; no runtime mutation here
 
     query_input = args.query or input("Enter your research question: ")
 
@@ -226,7 +325,7 @@ if __name__ == "__main__":
             # Generate AI synthesis
             synthesis = await synthesize_papers_async(synthesis_prompt)
             
-            print("\n� **Research Synthesis:**")
+            print("\n**Research Synthesis:**")
             print(synthesis)
         else:
             print("\n❌ No papers found to analyze.")

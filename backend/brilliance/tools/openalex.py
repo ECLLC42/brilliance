@@ -28,13 +28,27 @@ def _safe_get_nested(obj: Dict[str, Any], path: List[str], default: str = "") ->
 
 
 def _fetch(query: str, max_results: int = 3) -> str:
-    url = (
-        "https://api.openalex.org/works?"
-        f"search={quote_plus(query)}&per_page={max_results}&sort=publication_year:desc"
-    )
+    # Permit full OpenAlex URL; else build default search URL
+    if isinstance(query, str) and query.startswith("http"):
+        url = query
+    else:
+        url = (
+            "https://api.openalex.org/works?"
+            f"search={quote_plus(query)}&per_page={max_results}&sort=publication_year:desc"
+        )
     try:
-        resp = httpx.get(url, timeout=10)
-        resp.raise_for_status()  # Raise exception for bad status codes
+        import os
+        headers = {"User-Agent": os.getenv("HTTP_USER_AGENT", "Brilliance/1.0 (+contact@brilliance)")}
+        for attempt in range(3):
+            try:
+                resp = httpx.get(url, headers=headers, timeout=httpx.Timeout(5.0, connect=3.0))
+                resp.raise_for_status()  # Raise exception for bad status codes
+                break
+            except Exception:
+                if attempt == 2:
+                    raise
+                import time, random
+                time.sleep((2 ** attempt) + random.random())
         data = resp.json()
     except Exception as e:
         return f"Error fetching from OpenAlex: {str(e)}"
@@ -81,6 +95,12 @@ def _fetch(query: str, max_results: int = 3) -> str:
             except (ValueError, TypeError):
                 abstract_text = "No abstract"
         
+        # If no abstract, include venue for context
+        if abstract_text == "No abstract":
+            venue = _safe_get_nested(work, ["primary_location", "source", "display_name"], "")
+            if venue:
+                abstract_text = f"No abstract. Venue: {venue}"
+
         # Handle URL safely
         primary = work.get("primary_location", {})
         if not isinstance(primary, dict):
@@ -90,7 +110,12 @@ def _fetch(query: str, max_results: int = 3) -> str:
         if not isinstance(source, dict):
             source = {}
             
-        url_work = _safe_get(source, "url") or _safe_get(work, "id", "")
+        # Prefer landing page when available
+        url_work = (
+            _safe_get_nested(work, ["primary_location", "landing_page_url"], "")
+            or _safe_get(source, "url")
+            or _safe_get(work, "id", "")
+        )
         
         parts.append(f"{title} ({year}) by {authors_str}\nAbstract: {abstract_text}\nURL: {url_work}")
 

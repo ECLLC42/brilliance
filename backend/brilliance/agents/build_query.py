@@ -5,7 +5,7 @@ API-specific query builder for scholarly APIs.
 Converts optimized keywords into precise API queries per official documentation.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Any, Union
 from urllib.parse import quote_plus
 from datetime import datetime
 import re
@@ -37,15 +37,15 @@ class APIQueryBuilder:
         # Build query parts
         parts = []
         
-        # Add phrases with exact matching
+        # Add phrases with exact matching, scoping each token to its field
         if phrases:
-            phrase_query = " OR ".join(f'"{phrase}"' for phrase in phrases)
-            parts.append(f"ti:{phrase_query} OR abs:{phrase_query}")
-        
-        # Add single words with broader search
+            scoped = [f'ti:"{p}"' for p in phrases] + [f'abs:"{p}"' for p in phrases]
+            parts.append("(" + " OR ".join(scoped) + ")")
+
+        # Add single words with broader search, scoping each token
         if single_words:
-            word_query = " OR ".join(f'"{word}"' for word in single_words)
-            parts.append(f"ti:{word_query} OR abs:{word_query}")
+            scoped = [f'ti:"{w}"' for w in single_words] + [f'abs:"{w}"' for w in single_words]
+            parts.append("(" + " OR ".join(scoped) + ")")
         
         # Combine all parts
         if parts:
@@ -53,11 +53,8 @@ class APIQueryBuilder:
         else:
             search_query = " OR ".join(f'"{kw}"' for kw in keywords)
         
-        # Add date filter for recency
-        date_filter = f"submittedDate:[{year}0101 TO {datetime.now().year}1231]"
-        
-        # Combine queries
-        combined_query = f"({search_query}) AND {date_filter}"
+        # arXiv does not filter by submittedDate inside search_query reliably; rely on sort
+        combined_query = f"({search_query})"
         
         # Build final URL
         base_url = "https://export.arxiv.org/api/query"
@@ -229,7 +226,7 @@ class APIQueryBuilder:
         return optimized
 
 
-def build_api_queries(optimized_query, max_results: int = 10) -> Dict[str, str]:
+def build_api_queries(optimized_query, max_results: int = 10) -> Dict[str, Union[str, Dict[str, Any]]]:
     """
     Build API-specific queries for all supported scholarly APIs.
     

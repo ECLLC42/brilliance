@@ -1,6 +1,7 @@
 # synthesis_tool.py
 from logging import basicConfig, INFO
-from agents import Agent, Runner, SQLiteSession
+from agents import Agent, Runner
+import os
 
 basicConfig(level=INFO)
 
@@ -38,14 +39,10 @@ _summarizer=Agent(
         
         "Think step by step through your analysis before writing the final synthesis."
     ),
-    model="o3")
-_session=SQLiteSession("synth_session")
-
-def synthesizpapers(papers_text: str) -> str:
-    """Summarize arXiv papers into a short explanatory overview with citations."""
-    return Runner.run_sync(_summarizer, papers_text, session=_session).final_output
+    model=os.getenv("SUMMARIZER_MODEL", "gpt-5"))
+_session=None
 
 async def synthesize_papers_async(papers_text: str) -> str:
     """Async version - Summarize arXiv papers into a short explanatory overview with citations."""
-    result = await Runner().run(_summarizer, papers_text, session=_session)
+    result = await Runner().run(_summarizer, papers_text, session=None)
     return result.final_output
