@@ -12,9 +12,9 @@ from brilliance.agents.research_agent import run_research_agent
 from brilliance.synthesis.synthesis_tool import synthesize_papers_async
 
 
-async def multi_source_search(query: str, max_results: int = 3, model: str | None = None) -> Dict[str, Any]:
+async def multi_source_search(query: str, max_results: int = 3, model: str | None = None, user_api_key: str | None = None) -> Dict[str, Any]:
     """Use the research agent to select sources and fetch results."""
-    agent_out = await run_research_agent(query, max_results, model)
+    agent_out = await run_research_agent(query, max_results, model, user_api_key=user_api_key)
     return {
         "arxiv": agent_out.sources.get("arxiv", "No results"),
         "pubmed": agent_out.sources.get("pubmed", "No results"),
@@ -151,7 +151,7 @@ def rank_and_trim_results(all_results: Dict[str, Any], query: str, max_total: in
         return all_results
 
 
-async def orchestrate_research(user_query: str, max_results: int = 3, model: str | None = None) -> Dict[str, Any]:
+async def orchestrate_research(user_query: str, max_results: int = 3, model: str | None = None, user_api_key: str | None = None) -> Dict[str, Any]:
     """
     Main orchestration function for research queries with optimization.
     
@@ -165,7 +165,7 @@ async def orchestrate_research(user_query: str, max_results: int = 3, model: str
     print(f"🔍 Optimizing query (len={len(user_query)})")
     
     # Search across sources with optimization
-    search_results = await multi_source_search(user_query, max_results, model)
+    search_results = await multi_source_search(user_query, max_results, model, user_api_key=user_api_key)
     # Rank globally and trim to the requested max total
     trimmed_results = rank_and_trim_results(search_results, user_query, max_results)
     
@@ -199,7 +199,7 @@ async def orchestrate_research(user_query: str, max_results: int = 3, model: str
         synthesis_prompt = f"User Query: {user_query}\n\nPaper Data:\n{combined_papers}"
         
         # Generate AI synthesis
-        synthesis = await synthesize_papers_async(synthesis_prompt, model)
+        synthesis = await synthesize_papers_async(synthesis_prompt, model, user_api_key=user_api_key)
         final_results["synthesis"] = synthesis
     else:
         final_results["synthesis"] = "No papers found to analyze."

@@ -92,7 +92,7 @@ def _build_research_agent(model: str) -> Agent:
     )
 
 
-async def run_research_agent(query: str, max_results: int, model: str | None = None) -> ResearchOutput:
+async def run_research_agent(query: str, max_results: int, model: str | None = None, user_api_key: str | None = None) -> ResearchOutput:
     """Run the research agent with budgets/guardrails and return structured output."""
     # Use a known model supported by the default OpenAI provider in the Agents SDK
     chosen_model = model or os.getenv("RESEARCH_MODEL", os.getenv("OPTIMIZER_MODEL", "gpt-4o-mini"))
@@ -108,7 +108,11 @@ async def run_research_agent(query: str, max_results: int, model: str | None = N
             f"max_results: {max_results}\n"
             "When calling tools, pass max_results exactly as provided."
         )
-        result = await Runner.run(agent, user_msg)
+        # Build a RunConfig that disables sensitive data in tracing and, if needed, injects a per-run model provider
+        from agents import RunConfig
+        run_cfg = RunConfig(trace_include_sensitive_data=False)
+        # TODO: if we decide to bind the user's key to the model provider, do it here
+        result = await Runner.run(agent, user_msg, run_config=run_cfg)
         return result.final_output  # type: ignore[attr-defined]
     except Exception:
         # Fallback: run lightweight heuristic fetch without LLM (no API key required)

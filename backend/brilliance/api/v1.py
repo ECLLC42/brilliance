@@ -7,7 +7,7 @@ import time
 from threading import Lock
 from typing import Dict, Tuple
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, redirect
 from flask_cors import CORS
 
 from brilliance.agents.workflows import orchestrate_research
@@ -122,6 +122,39 @@ def create_app() -> Flask:
     def health() -> tuple[dict, int]:
         return {"status": "ok"}, 200
 
+    # Enforce HTTPS and add security headers
+    @app.before_request
+    def _enforce_https():
+        if os.getenv("ENFORCE_HTTPS") == "1":
+            # Respect Heroku/X-Forwarded-Proto
+            if request.headers.get("X-Forwarded-Proto", request.scheme) != "https":
+                url = request.url.replace("http://", "https://", 1)
+                return redirect(url, code=301)
+
+    @app.after_request
+    def _security_headers(resp):
+        # HSTS (only meaningful over HTTPS)
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+        # No MIME sniffing
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        # Referrer policy
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        # Minimal permissions policy
+        resp.headers.setdefault("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
+        # CSP tuned for our app and APIs
+        csp = (
+            "default-src 'self'; "
+            "connect-src 'self' https://api.openai.com https://*.openalex.org https://export.arxiv.org https://eutils.ncbi.nlm.nih.gov; "
+            "img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+            "base-uri 'none'; frame-ancestors 'none'"
+        )
+        resp.headers.setdefault("Content-Security-Policy", csp)
+        # No-store for responses with potential sensitive content
+        resp.headers.setdefault("Cache-Control", "no-store")
+        # Try to hide server banner
+        resp.headers.pop("Server", None)
+        return resp
+
     @app.get("/limits")
     def limits() -> tuple[dict, int]:
         client_ip = _get_client_ip()
@@ -170,14 +203,7 @@ def create_app() -> Flask:
 
         # Optional hard requirement handled above
 
-        # If a user key is supplied, expose it to downstream tools via common env names
-        if user_api_key:
-            os.environ.setdefault("OPENAI_API_KEY", user_api_key)
-            os.environ.setdefault("XAI_API_KEY", user_api_key)
-            os.environ.setdefault("GROK_API_KEY", user_api_key)
-            os.environ.setdefault("ANTHROPIC_API_KEY", user_api_key)
-            os.environ.setdefault("TOGETHER_API_KEY", user_api_key)
-            os.environ.setdefault("GEMINI_API_KEY", user_api_key)
+        # Do NOT set user API key in process environment
 
         # Enforce depth: "high" (> med cap) requires API key or bypassed IP
         is_allowed_high = bool(user_api_key) or _is_bypassed(client_ip)
@@ -189,7 +215,14 @@ def create_app() -> Flask:
             }, 402
 
         try:
-            results = asyncio.run(orchestrate_research(user_query=query, max_results=max_results, model=model))
+            results = asyncio.run(
+                orchestrate_research(
+                    user_query=query,
+                    max_results=max_results,
+                    model=model,
+                    user_api_key=user_api_key,
+                )
+            )
             return jsonify(results), 200
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500

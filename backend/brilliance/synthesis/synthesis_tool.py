@@ -1,6 +1,6 @@
 # synthesis_tool.py
 from logging import basicConfig, INFO
-from agents import Agent, Runner, output_guardrail, GuardrailFunctionOutput, RunContextWrapper
+from agents import Agent, Runner, output_guardrail, GuardrailFunctionOutput, RunContextWrapper, RunConfig
 from typing import Any, List, Tuple
 import os
 
@@ -144,12 +144,13 @@ async def synthesis_output_guardrail(
 
     return GuardrailFunctionOutput(output_info={"issues": issues, "word_count": main_wc}, tripwire_triggered=bool(issues))
 
-async def synthesize_papers_async(papers_text: str, model: str | None = None) -> str:
+async def synthesize_papers_async(papers_text: str, model: str | None = None, user_api_key: str | None = None) -> str:
     """Async version - Summarize arXiv papers into a short explanatory overview with citations."""
     chosen_model = model or os.getenv("SUMMARIZER_MODEL", "gpt-4o-mini")
     summarizer = _build_summarizer(chosen_model)
     try:
-        result = await Runner.run(summarizer, papers_text, session=None)
+        run_cfg = RunConfig(trace_include_sensitive_data=False)
+        result = await Runner.run(summarizer, papers_text, session=None, run_config=run_cfg)
         return result.final_output
     except Exception:
         return "Synthesis unavailable without a valid model/API key. Provide an API key to enable AI synthesis."
