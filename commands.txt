@@ -1,0 +1,1 @@
+npx -y concurrently -k -r -n FRONTEND,BACKEND -c blue,green "npm --prefix /Users/jeffreyshorthill/Brilliance_WS/frontend run start" "/Users/jeffreyshorthill/Brilliance_WS/backend/venv/bin/flask --app backend.brilliance.api.v1:app run --port 5000"

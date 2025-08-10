@@ -8,66 +8,20 @@ import asyncio
 import os
 from datetime import datetime
 from typing import Dict, Any, List, Tuple
-from brilliance.tools.arxiv import search_arxiv
-from brilliance.tools.pubmed import search_pubmed
-from brilliance.tools.openalex import search_openalex
-from brilliance.agents.query_optimizer_agent import optimize_academic_query, _fallback_optimization
-from brilliance.agents.build_query import build_api_queries
+from brilliance.agents.research_agent import run_research_agent
 from brilliance.synthesis.synthesis_tool import synthesize_papers_async
 
 
-async def multi_source_search(query: str, max_results: int = 3) -> Dict[str, Any]:
-    """
-    Search across multiple scholarly sources using optimized queries.
-    
-    Args:
-        query: Raw user query
-        max_results: Maximum results per source
-        
-    Returns:
-        Dictionary with results from all sources
-    """
-    # Step 1: Optimize the query (with fallback)
-    try:
-        optimized = await optimize_academic_query(query)
-    except Exception:
-        optimized = _fallback_optimization(query)
-
-    # Normalize missing agent fields (agent may return keywords only)
-    if not getattr(optimized, "preferred_year", None):
-        optimized.preferred_year = datetime.now().year - 1
-    for k in ("disease_terms", "intervention_terms", "outcome_terms", "study_type_terms"):
-        if not getattr(optimized, k, None):
-            setattr(optimized, k, [])
-
-    # Step 2: Build API-specific queries (URLs)
-    api_queries = build_api_queries(optimized, max_results)
-
-    # Step 3: Search with builder URLs where available (tools accept full URLs)
-    arxiv_query = api_queries.get("arxiv") or " ".join(optimized.keywords)
-    pubmed_query = api_queries.get("pubmed", {}).get("search_url") if isinstance(api_queries.get("pubmed"), dict) else None
-    openalex_query = api_queries.get("openalex") or " ".join(optimized.keywords)
-
-    # Pass preferred year to arXiv via env when unset
-    if not os.getenv("ARXIV_MIN_YEAR") and getattr(optimized, "preferred_year", None):
-        os.environ["ARXIV_MIN_YEAR"] = str(optimized.preferred_year)
-    arxiv_results = search_arxiv(arxiv_query, max_results)
-    pubmed_results = search_pubmed(pubmed_query or " ".join(optimized.keywords), max_results)
-    openalex_results = search_openalex(openalex_query, max_results)
-    
+async def multi_source_search(query: str, max_results: int = 3, model: str | None = None) -> Dict[str, Any]:
+    """Use the research agent to select sources and fetch results."""
+    agent_out = await run_research_agent(query, max_results, model)
     return {
-        "arxiv": arxiv_results,
-        "pubmed": pubmed_results,
-        "openalex": openalex_results,
+        "arxiv": agent_out.sources.get("arxiv", "No results"),
+        "pubmed": agent_out.sources.get("pubmed", "No results"),
+        "openalex": agent_out.sources.get("openalex", "No results"),
         "original_query": query,
-        "optimized_query": {
-            "keywords": optimized.keywords,
-            "preferred_year": optimized.preferred_year,
-            "disease_terms": optimized.disease_terms,
-            "intervention_terms": optimized.intervention_terms,
-            "outcome_terms": optimized.outcome_terms,
-            "study_type_terms": optimized.study_type_terms
-        }
+        "used_sources": agent_out.used_sources,
+        "agent_summary": agent_out.summary,
     }
 
 
@@ -178,49 +132,26 @@ def _score_chunk(query: str, meta: Dict[str, Any]) -> float:
 
 
 def rank_and_trim_results(all_results: Dict[str, Any], query: str, max_total: int) -> Dict[str, Any]:
-    """Rank papers across sources and trim to max_total overall (not per source).
-    Falls back to returning original results if parsing fails.
+    """Rank papers within each source and trim to max_total per source.
+    This preserves results across all sources to keep the UI depth semantics intact.
     """
     try:
-        combined: List[Tuple[str, str, float]] = []  # (source, chunk_text, score)
-        for source in ["arxiv", "pubmed", "openalex"]:
-            for chunk_text, meta in _parse_source_chunks(all_results.get(source, "")):
-                score = _score_chunk(query, meta)
-                combined.append((source, chunk_text, score))
-        if not combined:
-            return all_results
-        # Deduplicate by URL or title
-        seen_keys = set()
-        deduped: List[Tuple[str, str, float]] = []
-        for source, chunk_text, score in combined:
-            key = None
-            if "URL:" in chunk_text:
-                try:
-                    key = chunk_text.split("URL:", 1)[1].strip()
-                except Exception:
-                    key = None
-            if not key:
-                key = chunk_text.split("\n", 1)[0]
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            deduped.append((source, chunk_text, score))
-        # Rank and take top K
-        deduped.sort(key=lambda x: x[2], reverse=True)
-        chosen = deduped[: max_total]
-        # Rebuild per-source strings
         out: Dict[str, Any] = dict(all_results)
-        grouped: Dict[str, List[str]] = {"arxiv": [], "pubmed": [], "openalex": []}
-        for source, chunk_text, _ in chosen:
-            grouped[source].append(chunk_text)
-        for source in grouped:
-            out[source] = "\n\n".join(grouped[source]) if grouped[source] else "No results"
+        for source in ["arxiv", "pubmed", "openalex"]:
+            chunks = _parse_source_chunks(all_results.get(source, ""))
+            if not chunks:
+                # keep original value (may be "No results")
+                continue
+            scored: List[Tuple[str, float]] = [(text, _score_chunk(query, meta)) for text, meta in chunks]
+            scored.sort(key=lambda x: x[1], reverse=True)
+            top = [text for text, _ in scored[: max_total]]
+            out[source] = "\n\n".join(top) if top else all_results.get(source, "No results")
         return out
     except Exception:
         return all_results
 
 
-async def orchestrate_research(user_query: str, max_results: int = 3) -> Dict[str, Any]:
+async def orchestrate_research(user_query: str, max_results: int = 3, model: str | None = None) -> Dict[str, Any]:
     """
     Main orchestration function for research queries with optimization.
     
@@ -234,7 +165,7 @@ async def orchestrate_research(user_query: str, max_results: int = 3) -> Dict[st
     print(f"🔍 Optimizing query (len={len(user_query)})")
     
     # Search across sources with optimization
-    search_results = await multi_source_search(user_query, max_results)
+    search_results = await multi_source_search(user_query, max_results, model)
     # Rank globally and trim to the requested max total
     trimmed_results = rank_and_trim_results(search_results, user_query, max_results)
     
@@ -268,7 +199,7 @@ async def orchestrate_research(user_query: str, max_results: int = 3) -> Dict[st
         synthesis_prompt = f"User Query: {user_query}\n\nPaper Data:\n{combined_papers}"
         
         # Generate AI synthesis
-        synthesis = await synthesize_papers_async(synthesis_prompt)
+        synthesis = await synthesize_papers_async(synthesis_prompt, model)
         final_results["synthesis"] = synthesis
     else:
         final_results["synthesis"] = "No papers found to analyze."
@@ -279,8 +210,8 @@ async def orchestrate_research(user_query: str, max_results: int = 3) -> Dict[st
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Scholarly multi-source research assistant")
     parser.add_argument("query", nargs="?", help="Research question. If omitted, you will be prompted interactively.")
-    parser.add_argument("--model", choices=["gpt-5-mini", "grok-4"], default="gpt-5-mini",
-                        help="LLM model for query optimisation (default: gpt-5-mini)")
+    parser.add_argument("--model", choices=["gpt-4o-mini", "grok-4"], default="gpt-4o-mini",
+                        help="LLM model for query optimisation (default: gpt-4o-mini)")
     args = parser.parse_args()
 
     # Configure xAI SDK if GROK selected. Users already set GROK_API_KEY in env.

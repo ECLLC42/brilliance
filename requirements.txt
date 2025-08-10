@@ -8,3 +8,4 @@ gunicorn==21.2.0
 # Agents stack (left flexible to avoid version conflicts)
 openai-agents
 openai
+pydantic>=2.11,<3

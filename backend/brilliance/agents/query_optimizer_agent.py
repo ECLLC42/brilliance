@@ -25,9 +25,7 @@ class OptimizedQuery:
 
 
 # Create the academic query optimizer agent
-academic_query_optimizer = Agent(
-    name="academic_query_optimizer",
-    instructions=""" Role & Objective  
+_OPTIMIZER_INSTRUCTIONS = """ Role & Objective  
 **Role:** Expert academic research librarian (Echo).  
 **Objective:** Transform any natural-language research query into *precise, keyword-rich* search terms for scholarly APIs.
 
@@ -56,13 +54,19 @@ academic_query_optimizer = Agent(
 {
   "keywords": ["keyword 1", "keyword 2", "keyword 3", …]
 }
-```""",
-    model=os.getenv("OPTIMIZER_MODEL", "gpt-5-mini"),
-    output_type=OptimizedQuery
-)
+```"""
 
 
-async def optimize_query_with_agent(user_query: str) -> OptimizedQuery:
+def _build_optimizer_agent(model: str) -> Agent:
+    return Agent(
+        name="academic_query_optimizer",
+        instructions=_OPTIMIZER_INSTRUCTIONS,
+        model=model,
+        output_type=OptimizedQuery,
+    )
+
+
+async def optimize_query_with_agent(user_query: str, model: str | None = None) -> OptimizedQuery:
     """
     Use the academic query optimizer agent to transform natural language into optimized keywords.
     
@@ -74,7 +78,9 @@ async def optimize_query_with_agent(user_query: str) -> OptimizedQuery:
     """
     """Invoke the academic_query_optimizer agent asynchronously and return structured keywords."""
     try:
-        result = await Runner.run(academic_query_optimizer, user_query)
+        chosen_model = model or os.getenv("OPTIMIZER_MODEL", "gpt-4o-mini")
+        optimizer = _build_optimizer_agent(chosen_model)
+        result = await Runner.run(optimizer, user_query)
         # Runner.run returns an AgentRun object; final_output holds the parsed output
         return result.final_output  # type: ignore[attr-defined]
     except Exception as e:
@@ -173,6 +179,6 @@ def _fallback_optimization(user_query: str) -> OptimizedQuery:
 
 
 # Convenience function for synchronous usage
-async def optimize_academic_query(user_query: str) -> OptimizedQuery:
+async def optimize_academic_query(user_query: str, model: str | None = None) -> OptimizedQuery:
     """Public API used by the rest of the codebase."""
-    return await optimize_query_with_agent(user_query)
+    return await optimize_query_with_agent(user_query, model)
