@@ -10,7 +10,7 @@ from typing import Dict, Tuple
 from flask import Flask, jsonify, request, redirect
 from flask_cors import CORS
 
-from brilliance.agents.workflows import orchestrate_research
+from brilliance.agents.workflows import orchestrate_research, orchestrate_research_task
 
 
 # In-memory per-process quota store: ip -> (count, reset_epoch_seconds)
@@ -239,6 +239,20 @@ def create_app() -> Flask:
                 "allowed_up_to": med_cap,
             }, 402
 
+        # Optional async mode via Celery
+        if os.getenv("ENABLE_ASYNC_JOBS") == "1":
+            try:
+                task = orchestrate_research_task.delay({
+                    "user_query": query,
+                    "max_results": max_results,
+                    "model": model,
+                    "user_api_key": user_api_key,
+                })
+                return {"task_id": task.id, "status": "queued"}, 202
+            except Exception as exc:
+                return jsonify({"error": f"Failed to enqueue task: {exc}"}), 500
+
+        # Synchronous path (default)
         try:
             results = asyncio.run(
                 orchestrate_research(
@@ -251,6 +265,24 @@ def create_app() -> Flask:
             return jsonify(results), 200
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
+
+    @app.get("/research/<task_id>")
+    def research_status(task_id: str) -> tuple[dict, int]:
+        """Poll Celery task status/result when async mode is enabled."""
+        if os.getenv("ENABLE_ASYNC_JOBS") != "1":
+            return {"error": "Async jobs disabled"}, 400
+        try:
+            from brilliance.celery_app import celery_app
+            async_result = celery_app.AsyncResult(task_id)
+            state = async_result.state
+            if state in ("PENDING", "STARTED", "RETRY"):
+                return {"task_id": task_id, "status": state.lower()}, 200
+            if state == "SUCCESS":
+                return {"task_id": task_id, "status": "success", "result": async_result.result}, 200
+            # FAILURE or revoked
+            return {"task_id": task_id, "status": "failure", "error": str(async_result.result)}, 200
+        except Exception as exc:
+            return {"error": str(exc)}, 500
 
     return app
 

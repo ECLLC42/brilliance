@@ -9,3 +9,5 @@ gunicorn==21.2.0
 openai-agents
 openai
 pydantic>=2.11,<3
+celery>=5.3
+redis>=5.0

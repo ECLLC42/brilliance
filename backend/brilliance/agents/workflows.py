@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Tuple
 from brilliance.agents.research_agent import run_research_agent
 from brilliance.synthesis.synthesis_tool import synthesize_papers_async
+from brilliance.celery_app import celery_app
 
 
 async def multi_source_search(query: str, max_results: int = 3, model: str | None = None, user_api_key: str | None = None) -> Dict[str, Any]:
@@ -205,6 +206,26 @@ async def orchestrate_research(user_query: str, max_results: int = 3, model: str
         final_results["synthesis"] = "No papers found to analyze."
     
     return final_results
+
+
+# -------- Celery task wrappers --------
+@celery_app.task(name="brilliance.run_orchestrate_research")
+def orchestrate_research_task(payload: dict) -> dict:
+    """Celery task thin wrapper that runs the async orchestrator.
+
+    Args:
+        payload: {"user_query": str, "max_results": int, "model": Optional[str], "user_api_key": Optional[str]}
+    Returns:
+        Dict with final results (same as orchestrate_research)
+    """
+    import asyncio
+
+    user_query = payload.get("user_query", "")
+    max_results = int(payload.get("max_results", 3))
+    model = payload.get("model")
+    user_api_key = payload.get("user_api_key")
+
+    return asyncio.run(orchestrate_research(user_query=user_query, max_results=max_results, model=model, user_api_key=user_api_key))
 
 
 if __name__ == "__main__":

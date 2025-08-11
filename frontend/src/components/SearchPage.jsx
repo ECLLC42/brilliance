@@ -156,6 +156,24 @@ const SearchPage = () => {
         body: JSON.stringify({ query: query.trim(), max_results: depthToMax(searchDepth), model: selectedModel })
       });
 
+      // Async mode: backend returns 202 with task_id
+      if (response.status === 202) {
+        const queued = await response.json().catch(() => ({}));
+        const taskId = queued.task_id;
+        if (!taskId) throw new Error('Failed to enqueue job');
+        // Poll until completion
+        const result = await pollTaskUntilDone(apiBase, taskId, apiKey);
+        if (result && result.result) {
+          setResults(result.result);
+          setError(null);
+        } else if (result && result.error) {
+          throw new Error(result.error);
+        } else {
+          throw new Error('Job did not complete');
+        }
+        return;
+      }
+
       if (!response.ok) {
         if (response.status === 402) {
           setNeedsKey(true);
@@ -166,6 +184,7 @@ const SearchPage = () => {
         throw new Error(err.error || `Request failed with ${response.status}`);
       }
 
+      // Sync mode: 200 with results
       const data = await response.json();
       setResults(data);
       setError(null);
@@ -176,6 +195,25 @@ const SearchPage = () => {
     } finally {
       setIsSearching(false);
     }
+  };
+
+  // Poll task status endpoint until success/failure, with gentle backoff
+  const pollTaskUntilDone = async (apiBase, taskId, key) => {
+    const maxAttempts = 180; // up to ~6 minutes @ 2s avg
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const res = await fetch(`${apiBase}/research/${taskId}`, {
+          headers: { ...(key ? { 'X-User-Api-Key': key } : {}) }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.status === 'success') return data;
+        if (data.status === 'failure') return data;
+      } catch {}
+      // exponential-ish backoff within 1–3s
+      const delay = 1000 + Math.min(2000, attempt * 20);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    return { error: 'Timed out waiting for job result' };
   };
 
   const depthToMax = (depth) => {
