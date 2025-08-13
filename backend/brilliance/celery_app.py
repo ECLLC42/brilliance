@@ -20,7 +20,15 @@ def make_celery() -> Celery:
     broker_url = os.getenv("CELERY_BROKER_URL") or _redis_url_default()
     result_backend = os.getenv("CELERY_RESULT_BACKEND") or _redis_url_default()
 
-    app = Celery("brilliance", broker=broker_url, backend=result_backend)
+    # Include the module that defines tasks so the worker knows about them
+    app = Celery(
+        "brilliance",
+        broker=broker_url,
+        backend=result_backend,
+        include=[
+            "brilliance.agents.workflows",  # contains orchestrate_research_task
+        ],
+    )
 
     # Prefer JSON serialization for safety in hosted environments
     app.conf.update(
@@ -31,6 +39,13 @@ def make_celery() -> Celery:
         result_expires=int(os.getenv("CELERY_RESULT_EXPIRES", "86400")),  # 24h
         worker_hijack_root_logger=False,
     )
+
+    # Eagerly import tasks to ensure registration in environments where include is ignored
+    try:
+        # no-op import purely to register tasks
+        import brilliance.agents.workflows  # noqa: F401
+    except Exception:
+        pass
 
     return app
 
