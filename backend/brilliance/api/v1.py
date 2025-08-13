@@ -17,6 +17,9 @@ from brilliance.agents.workflows import orchestrate_research, orchestrate_resear
 _quota_lock = Lock()
 _quota_store: Dict[str, Tuple[int, float]] = {}
 
+# Per-IP, per-model quota store: key -> (count, reset_epoch_seconds)
+_model_quota_store: Dict[str, Tuple[int, float]] = {}
+
 # Depth to per-source result caps used by the frontend defaults
 DEPTH_LIMITS = {"low": 3, "med": 5, "high": 10}
 
@@ -116,6 +119,47 @@ def _check_and_increment_quota(ip: str) -> Tuple[bool, int, int]:
             return False, remaining, int(reset_at - now)
 
 
+def _check_and_increment_model_quota(ip: str, model: str | None) -> Tuple[bool, int, int]:
+    """
+    Model-specific quota: enforce per-IP limits only for selected models.
+
+    Defaults (override via env):
+    - gpt-5: 3 per window (QUOTA_GPT5_PER_IP)
+    - gpt-5-mini: 10 per window (QUOTA_GPT5_MINI_PER_IP)
+    Other models are unlimited.
+
+    Returns (allowed, remaining, reset_in_seconds)
+    """
+    window_seconds = int(os.getenv("FREE_QUOTA_WINDOW_SECONDS", "86400") or 86400)
+    model_clean = (model or "").strip()
+
+    limits = {
+        "gpt-5": int(os.getenv("QUOTA_GPT5_PER_IP", "3") or 3),
+        "gpt-5-mini": int(os.getenv("QUOTA_GPT5_MINI_PER_IP", "10") or 10),
+    }
+    if model_clean not in limits:
+        return True, -1, window_seconds
+
+    limit = limits[model_clean]
+    if limit <= 0:
+        return True, -1, window_seconds
+
+    key = f"{ip}::{model_clean}"
+    now = time.time()
+    with _quota_lock:
+        count, reset_at = _model_quota_store.get(key, (0, now + window_seconds))
+        if now >= reset_at:
+            count, reset_at = 0, now + window_seconds
+        if count < limit:
+            count += 1
+            _model_quota_store[key] = (count, reset_at)
+            remaining = max(0, limit - count)
+            return True, remaining, int(reset_at - now)
+        else:
+            remaining = 0
+            return False, remaining, int(reset_at - now)
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     origins = _parse_allowed_origins()
@@ -183,13 +227,14 @@ def create_app() -> Flask:
     @app.get("/limits")
     def limits() -> tuple[dict, int]:
         client_ip = _get_client_ip()
-        user_api_key = request.headers.get("X-User-Api-Key")
-        is_allowed_high = bool(user_api_key) or _is_bypassed(client_ip)
+        # Allow high depth only for bypassed IPs
+        is_allowed_high = _is_bypassed(client_ip)
         allowed_depths = ["low", "med"] + (["high"] if is_allowed_high else [])
         return {
             "allowed_depths": allowed_depths,
             "per_source_caps": DEPTH_LIMITS,
-            "require_api_key": os.getenv("REQUIRE_API_KEY") == "1",
+            # Backend uses server-side OPENAI_API_KEY; user-provided keys are not required
+            "require_api_key": False,
         }, 200
 
     @app.post("/research")
@@ -208,36 +253,27 @@ def create_app() -> Flask:
 
         client_ip = _get_client_ip()
 
-        # Require API key for all research in production-like mode
-        user_api_key = request.headers.get("X-User-Api-Key")
-        if os.getenv("REQUIRE_API_KEY") == "1" and not user_api_key:
-            return {"message": "API key required"}, 402
-
-        # If not strictly required, still apply free quota unless bypassed or key provided
-        if not user_api_key and not _is_bypassed(client_ip) and os.getenv("REQUIRE_API_KEY") != "1":
-            allowed, remaining, reset_in = _check_and_increment_quota(client_ip)
+        # Apply per-IP, model-specific quota unless bypassed; no user-supplied API keys are required
+        if not _is_bypassed(client_ip):
+            allowed, remaining, reset_in = _check_and_increment_model_quota(client_ip, model)
             if not allowed:
-                return (
-                    {
-                        "message": "Free limit reached. Add an API key to continue.",
-                        "remaining": remaining,
-                        "reset_in": reset_in,
-                    },
-                    402,
-                )
+                return {
+                    "error": "Rate limit exceeded for this model. Please try again later.",
+                    "remaining": remaining,
+                    "reset_in": reset_in,
+                }, 429
 
         # Optional hard requirement handled above
 
         # Do NOT set user API key in process environment
 
-        # Enforce depth: "high" (> med cap) requires API key or bypassed IP
-        is_allowed_high = bool(user_api_key) or _is_bypassed(client_ip)
+        # Enforce depth: "high" (> med cap) requires a whitelisted/bypassed IP
         med_cap = DEPTH_LIMITS.get("med", 5)
-        if max_results > med_cap and not is_allowed_high:
+        if max_results > med_cap and not _is_bypassed(client_ip):
             return {
-                "message": "High depth requires an API key or whitelisted IP.",
+                "error": "High depth is restricted.",
                 "allowed_up_to": med_cap,
-            }, 402
+            }, 403
 
         # Optional async mode via Celery
         if os.getenv("ENABLE_ASYNC_JOBS") == "1":
@@ -246,7 +282,6 @@ def create_app() -> Flask:
                     "user_query": query,
                     "max_results": max_results,
                     "model": model,
-                    "user_api_key": user_api_key,
                 })
                 return {"task_id": task.id, "status": "queued"}, 202
             except Exception as exc:
@@ -259,7 +294,6 @@ def create_app() -> Flask:
                     user_query=query,
                     max_results=max_results,
                     model=model,
-                    user_api_key=user_api_key,
                 )
             )
             return jsonify(results), 200

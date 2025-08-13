@@ -54,6 +54,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 # Keep frontend build artifacts ignored, but include the source
-#frontend/
+frontend/
  
 codex/

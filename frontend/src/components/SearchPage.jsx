@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
-import { Button } from './ui/button';
-// Removed cmdk Command.Input in favor of native form semantics
-import { Search, Key, ListFilter } from 'lucide-react';
+import { Search, Key, Sparkles, Settings, ChevronDown, X, Check, Zap, BookOpen, Beaker } from 'lucide-react';
 import ResultsPage from './ResultsPage';
+import { debounce } from 'lodash-es';
+import { useCallback, useMemo } from 'react';
 
 const SearchPage = () => {
   const [query, setQuery] = useState('');
@@ -12,85 +12,76 @@ const SearchPage = () => {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [apiKey, setApiKey] = useState('');
-  const [needsKey, setNeedsKey] = useState(false);
-  const [savingKey, setSavingKey] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [showDepthModal, setShowDepthModal] = useState(false);
-  const [searchDepth, setSearchDepth] = useState('low'); // 'low' | 'med' | 'high'
-  const [allowedDepths, setAllowedDepths] = useState(['low','med']);
+  const [showSettings, setShowSettings] = useState(false);
+  const [searchDepth, setSearchDepth] = useState('low');
   const [selectedModel, setSelectedModel] = useState('gpt-5-mini');
-  const [showModelMenu, setShowModelMenu] = useState(false);
-  const getApiBase = () => (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
-  const examples = [
-    'protein folding breakthroughs',
-    'climate model comparisons',
-    'single-cell RNA-seq analysis trends',
-    'largest Alzheimer’s 2024 trials',
-    'best foundation models for biology',
+  const [currentExampleIndex, setCurrentExampleIndex] = useState(0);
+  const [allowedDepths, setAllowedDepths] = useState(['low', 'med']);
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+
+  // Popular research topics for suggestions
+  const popularTopics = [
+    "machine learning in healthcare",
+    "climate change mitigation strategies",
+    "CRISPR gene editing applications",
+    "quantum computing breakthroughs",
+    "renewable energy technologies",
+    "artificial intelligence ethics",
+    "cancer immunotherapy advances",
+    "sustainable agriculture methods"
   ];
-  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+
+  const getApiBase = () => (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+
+  const examples = [
+    'What are the latest breakthroughs in protein folding using AlphaFold?',
+    'How do current climate models compare in predicting sea level rise?',
+    'What trends are emerging in single-cell RNA sequencing analysis?',
+    "Which Alzheimer's clinical trials showed promise in 2024?",
+    'What foundation models are best suited for biological research?',
+    'How is CRISPR being used in cancer immunotherapy?',
+    'What advances have been made in quantum computing algorithms?',
+    'How effective are mRNA vaccines against emerging variants?'
+  ];
+
   const containerRef = useRef(null);
   const titleRef = useRef(null);
-  const searchContainerRef = useRef(null);
+  const searchRef = useRef(null);
   const inputRef = useRef(null);
+  const placeholderRef = useRef(null);
   const buttonRef = useRef(null);
 
+  // Initial animations
   useGSAP(() => {
-    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (prefersReduced) return;
-
     const tl = gsap.timeline();
-    
-    tl.fromTo(titleRef.current, 
-      { opacity: 0, y: -30 },
-      { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }
-    )
-    .fromTo(searchContainerRef.current,
-      { opacity: 0, y: 16, scale: 0.98 },
-      { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "power2.out" },
-      "-=0.3"
-    )
-    .fromTo(inputRef.current,
-      { opacity: 0, x: -12 },
-      { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" },
-      "-=0.2"
-    )
-    .fromTo(buttonRef.current,
-      { opacity: 0, x: 12 },
-      { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" },
-      "-=0.2"
-    );
-
-
-    // Subtle micro-motion (single yoyo), no infinite loop
-    gsap.to(searchContainerRef.current, {
-      y: -2,
-      duration: 2,
-      ease: "power2.inOut",
-      yoyo: true,
-      repeat: 1
-    });
-
+    tl.fromTo(titleRef.current, { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.8, ease: 'power3.out' })
+      .fromTo(searchRef.current, { opacity: 0, scale: 0.95 }, { opacity: 1, scale: 1, duration: 0.6, ease: 'power2.out' }, '-=0.4');
   }, { scope: containerRef });
 
-  // Rotate placeholder every 2s when input is empty
-  useEffect(() => {
-    if (query.trim().length > 0) return;
-    const id = setInterval(() => {
-      setPlaceholderIdx((i) => (i + 1) % examples.length);
-    }, 2000);
-    return () => clearInterval(id);
-  }, [query, examples.length]);
+  // Animated placeholder text
+  useGSAP(() => {
+    if (query.trim().length > 0 || !placeholderRef.current) return;
+    const tl = gsap.timeline({ repeat: -1 });
+    examples.forEach((_, index) => {
+      tl.call(() => setCurrentExampleIndex(index))
+        .fromTo(placeholderRef.current, { x: 30, opacity: 0 }, { x: 0, opacity: 0.5, duration: 0.5, ease: 'power2.out' })
+        .to(placeholderRef.current, { x: -30, opacity: 0, duration: 0.5, ease: 'power2.in', delay: 3 });
+    });
+    return () => tl.kill();
+  }, [query]);
 
-  // Load any saved API key on mount
+  // Load saved preferences
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('user_api_key');
-      if (saved) setApiKey(saved);
+      const savedKey = localStorage.getItem('user_api_key');
+      if (savedKey) setApiKey(savedKey);
       const savedDepth = localStorage.getItem('search_depth');
-      if (savedDepth && ['low','med','high'].includes(savedDepth)) setSearchDepth(savedDepth);
+      if (savedDepth && ['low', 'med', 'high'].includes(savedDepth)) setSearchDepth(savedDepth);
       const savedModel = localStorage.getItem('model_name');
-      if (savedModel && ['o3','o3-mini','gpt-5','gpt-5-mini','o3-pro'].includes(savedModel)) setSelectedModel(savedModel);
+      if (savedModel) setSelectedModel(savedModel);
     } catch {}
   }, []);
 
@@ -99,117 +90,82 @@ const SearchPage = () => {
     const fetchLimits = async () => {
       try {
         const apiBase = getApiBase();
-        const res = await fetch(`${apiBase}/limits`, {
-          headers: { ...(apiKey ? { 'X-User-Api-Key': apiKey } : {}) }
-        });
+        const res = await fetch(`${apiBase}/limits`, { headers: { ...(apiKey ? { 'X-User-Api-Key': apiKey } : {}) } });
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data.allowed_depths)) {
-            setAllowedDepths(data.allowed_depths);
-          }
-          // If backend requires a key and none is stored, prompt immediately
-          if (data && data.require_api_key && !(localStorage.getItem('user_api_key') || '').trim()) {
-            setShowKeyModal(true);
-          }
+          if (Array.isArray(data.allowed_depths)) setAllowedDepths(data.allowed_depths);
         }
       } catch {}
     };
     fetchLimits();
   }, [apiKey]);
 
-  const refreshLimitsWithKey = async (key) => {
-    try {
-      const apiBase = getApiBase();
-      const res = await fetch(`${apiBase}/limits`, {
-        headers: { ...(key ? { 'X-User-Api-Key': key } : {}) }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.allowed_depths)) {
-          setAllowedDepths(data.allowed_depths);
-        }
+  // Suggestion filtering logic
+  const debouncedUpdateSuggestions = useCallback(
+    debounce((query) => {
+      if (query.length > 2) {
+        const filtered = popularTopics.filter(topic =>
+          topic.toLowerCase().includes(query.toLowerCase())
+        );
+        setSuggestions(filtered.slice(0, 5));
+        setShowSuggestions(filtered.length > 0);
+      } else {
+        setShowSuggestions(false);
       }
-    } catch {}
-  };
+    }, 300),
+    []
+  );
+
+  useEffect(() => {
+    debouncedUpdateSuggestions(query);
+    return () => debouncedUpdateSuggestions.cancel();
+  }, [query, debouncedUpdateSuggestions]);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
-    
     setIsSearching(true);
-    
-    // Animate the search button
-    gsap.to(buttonRef.current, {
-      scale: 0.95,
-      duration: 0.1,
-      yoyo: true,
-      repeat: 1
-    });
-
+    setError(null);
+    gsap.to(buttonRef.current, { scale: 0.95, duration: 0.1, yoyo: true, repeat: 1 });
     try {
       const apiBase = process.env.REACT_APP_API_URL || '';
       const response = await fetch(`${apiBase}/research`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { 'X-User-Api-Key': apiKey } : {})
-        },
+        headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'X-User-Api-Key': apiKey } : {}) },
         body: JSON.stringify({ query: query.trim(), max_results: depthToMax(searchDepth), model: selectedModel })
       });
-
-      // Async mode: backend returns 202 with task_id
       if (response.status === 202) {
         const queued = await response.json().catch(() => ({}));
         const taskId = queued.task_id;
         if (!taskId) throw new Error('Failed to enqueue job');
-        // Poll until completion
         const result = await pollTaskUntilDone(apiBase, taskId, apiKey);
-        if (result && result.result) {
-          setResults(result.result);
-          setError(null);
-        } else if (result && result.error) {
-          throw new Error(result.error);
-        } else {
-          throw new Error('Job did not complete');
-        }
+        if (result && result.result) { setResults(result.result); setError(null); }
+        else if (result && result.error) { throw new Error(result.error); }
+        else { throw new Error('Job did not complete'); }
         return;
       }
-
       if (!response.ok) {
-        if (response.status === 402) {
-          setNeedsKey(true);
-          const err = await response.json().catch(() => ({}));
-          throw new Error(err.message || 'Free limit reached. Add API key to continue.');
-        }
         const err = await response.json().catch(() => ({}));
         throw new Error(err.error || `Request failed with ${response.status}`);
       }
-
-      // Sync mode: 200 with results
       const data = await response.json();
       setResults(data);
       setError(null);
-      
-    } catch (error) {
-      console.error('Search error:', error);
-      setError(error.message || 'Something went wrong');
+    } catch (e) {
+      setError(e.message || 'Something went wrong. Please try again.');
     } finally {
       setIsSearching(false);
     }
   };
 
-  // Poll task status endpoint until success/failure, with gentle backoff
   const pollTaskUntilDone = async (apiBase, taskId, key) => {
-    const maxAttempts = 180; // up to ~6 minutes @ 2s avg
+    const maxAttempts = 180;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const res = await fetch(`${apiBase}/research/${taskId}`, {
-          headers: { ...(key ? { 'X-User-Api-Key': key } : {}) }
-        });
+        const res = await fetch(`${apiBase}/research/${taskId}`, { headers: { ...(key ? { 'X-User-Api-Key': key } : {}) } });
         const data = await res.json().catch(() => ({}));
         if (data.status === 'success') return data;
         if (data.status === 'failure') return data;
       } catch {}
-      // exponential-ish backoff within 1–3s
       const delay = 1000 + Math.min(2000, attempt * 20);
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -225,307 +181,379 @@ const SearchPage = () => {
     }
   };
 
-  const handleSaveKey = async () => {
-    const trimmed = (apiKey || '').trim();
-    if (!trimmed) {
-      setError('Please enter a valid API key.');
-      return;
-    }
-    try {
-      setSavingKey(true);
-      localStorage.setItem('user_api_key', trimmed);
-      // ensure state is the saved value (and trigger effects if changed)
-      setApiKey(trimmed);
-      await refreshLimitsWithKey(trimmed);
-      setNeedsKey(false);
-      setShowKeyModal(false);
-      setError(null);
-      // Retry the last search automatically if a query exists
-      if (query.trim()) {
-        await handleSearch();
-      }
-    } catch (e) {
-      setError('Failed to save key locally.');
-    } finally {
-      setSavingKey(false);
-    }
+  const depthConfig = {
+    low: { label: 'Quick', papers: '3 papers', icon: Zap, color: 'text-green-400' },
+    med: { label: 'Standard', papers: '5 papers', icon: BookOpen, color: 'text-blue-400' },
+    high: { label: 'Deep', papers: '10 papers', icon: Beaker, color: 'text-purple-400' }
   };
 
+  const models = [
+    { id: 'gpt-5-mini', name: 'GPT-5 Mini', badge: 'Fast' },
+    { id: 'gpt-5', name: 'GPT-5', badge: 'Balanced' },
+    { id: 'o3-mini', name: 'O3 Mini', badge: 'Efficient' },
+    { id: 'o3', name: 'O3', badge: 'Advanced' },
+    { id: 'o3-pro', name: 'O3 Pro', badge: 'Premium', requiresKey: true }
+  ];
+
+  // Enhanced keyboard navigation
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSearch();
+      if (activeSuggestionIndex >= 0 && suggestions[activeSuggestionIndex]) {
+        setQuery(suggestions[activeSuggestionIndex]);
+        setShowSuggestions(false);
+      } else {
+        handleSearch();
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestionIndex(prev =>
+        prev < suggestions.length - 1 ? prev + 1 : prev
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestionIndex(prev => prev > -1 ? prev - 1 : -1);
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+      setActiveSuggestionIndex(-1);
     }
-  };
-
-  const handleBackToSearch = () => {
-    setResults(null);
-    setQuery('');
-  };
-
-  const openKeyModal = () => {
-    setShowKeyModal(true);
-    setNeedsKey(false);
-  };
-  const closeKeyModal = () => setShowKeyModal(false);
-  const openDepthModal = () => setShowDepthModal(true);
-  const closeDepthModal = () => setShowDepthModal(false);
-  const handleSaveDepth = (value) => {
-    setSearchDepth(value);
-    try { localStorage.setItem('search_depth', value); } catch {}
-    closeDepthModal();
-  };
-  const depthLabel = () => (searchDepth === 'med' ? 'Med' : searchDepth === 'high' ? 'High' : 'Low');
-
-  const modelChoices = ['o3','o3-mini','gpt-5','gpt-5-mini','o3-pro'];
-  const saveModel = (m) => {
-    // If user tries to select o3-pro without a key, ignore
-    if (m === 'o3-pro' && !(apiKey && apiKey.trim())) return;
-    setSelectedModel(m);
-    try { localStorage.setItem('model_name', m); } catch {}
-    setShowModelMenu(false);
   };
 
   // Show results page if we have results
   if (results) {
-    return <ResultsPage results={results} onBack={handleBackToSearch} />;
+    return <ResultsPage results={results} onBack={() => { setResults(null); setQuery(''); }} />;
   }
-  
-    return (
-    <>
-    <div 
-      ref={containerRef}
-      className="min-h-screen bg-dark-gradient flex flex-col items-center justify-start p-4 pt-20 md:pt-28"
-    >
-      {/* Background effects */}
-      <div className="bg-waves" aria-hidden="true">
-        <div className="wave wave--1" />
-        <div className="wave wave--2" />
-      </div>
-      <div className="bg-streaks" aria-hidden="true">
-        <div className="streak streak--tl" />
-        <div className="streak streak--br" />
+
+  return (
+    <div ref={containerRef} className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+      {/* Animated background */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-blue-500/20 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute -bottom-40 -right-40 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
       </div>
 
-      {/* Main content */}
-      <div className="relative z-10 w-full max-w-4xl mx-auto text-center">
-        {/* API key action moved into the input group for immediate access */}
-        {/* Title */}
-        <div ref={titleRef} className="mb-8 md:mb-10">
-          <h1 className="text-6xl md:text-7xl font-extrabold tracking-tight text-white mb-3">
-            Brilliance 2.1 Beta
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-4">
+        {/* Header */}
+        <div ref={titleRef} className="text-center mb-12">
+          <div className="inline-flex items-center gap-2 mb-4 px-3 py-1 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full border border-white/10">
+            <Sparkles className="w-4 h-4 text-blue-400" />
+            <span className="text-xs font-medium text-gray-300">AI-Powered Research</span>
+          </div>
+          <h1 className="text-5xl md:text-6xl font-bold text-white mb-3">
+            Brilliance <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">2.1</span>
           </h1>
-          <p className="text-base md:text-lg text-gray-300 max-w-2xl mx-auto">
-            Advanced research assistant powered by <span className="bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent font-semibold">AI Synthesis</span>
-          </p>
+          <p className="text-gray-400 max-w-md mx-auto">Discover and synthesize academic research with advanced AI</p>
         </div>
 
         {/* Search Container */}
-        <div 
-          ref={searchContainerRef}
-          className="relative max-w-2xl mx-auto glassmorphism-dark rounded-2xl border border-white/10 p-4 md:p-6"
-        >
-          <form className="flex items-center" onSubmit={(e) => { e.preventDefault(); handleSearch(); }}>
-            <label htmlFor="query" className="sr-only">Search query</label>
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-cyan-300/80" />
-              <input
-                id="query"
-                type="search"
-                ref={inputRef}
-                placeholder={examples[placeholderIdx]}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="w-full h-16 rounded-2xl bg-transparent text-lg text-white placeholder:text-gray-400 border border-white/10 pl-12 pr-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60"
-              />
-              {/* Submit button docked to the right inside the field */}
-              <Button
-                type="submit"
-                ref={buttonRef}
-                disabled={isSearching || !query.trim()}
-                aria-busy={isSearching}
-                aria-live="polite"
-                className="absolute right-2 top-1/2 -translate-y-1/2 h-12 px-6 bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-600 hover:to-purple-700 text-white font-medium rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/25"
-              >
-                {isSearching ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Searching...</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Search className="w-5 h-5" />
-                    <span>Search</span>
-                  </div>
-                )}
-              </Button>
-            </div>
-          </form>
-          {/* Bottom-left controls group */}
-          <div className="absolute left-3 bottom-3 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={openKeyModal}
-              aria-label="Set API key"
-              className="h-6 w-6 grid place-items-center rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60"
-            >
-              <Key className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={openDepthModal}
-              aria-label="Set number of resources searched"
-              className="h-6 w-6 grid place-items-center rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60"
-              title={`Depth: ${searchDepth}`}
-            >
-              <ListFilter className="w-4 h-4" />
-            </button>
-            <span className="text-[10px] leading-none px-2 py-1 rounded-md bg-white/8 border border-white/10 text-gray-200 select-none" aria-label={`Current depth ${depthLabel()}`}>{depthLabel()}</span>
+        {/* Rotating example just above the search box */}
+        {!query && (
+          <div className="mb-3 text-center">
+            <span className="text-base md:text-lg text-gray-300/90 italic">e.g., </span>
+            <span className="text-base md:text-lg text-gray-200/90">“{examples[currentExampleIndex]}”</span>
           </div>
-
-          {/* Bottom-right model switcher */}
-          <div className="absolute right-3 bottom-3 flex items-center gap-2 text-white">
-            <span className="text-[10px] uppercase tracking-wide text-gray-300">Model</span>
-            <button
-              type="button"
-              onClick={() => setShowModelMenu((s) => !s)}
-              className="text-[10px] leading-none px-2 py-1 rounded-md bg-white/8 border border-white/10 hover:bg-white/20"
-              aria-haspopup="menu"
-              aria-expanded={showModelMenu}
-            >{selectedModel}</button>
-            {showModelMenu && (
-              <div className="absolute right-0 bottom-10 w-56 rounded-md bg-zinc-900 border border-white/10 shadow-lg p-1 text-left z-50">
-                {modelChoices.map((m) => {
-                  const isO3Pro = m === 'o3-pro';
-                  const disabled = isO3Pro && !(apiKey && apiKey.trim());
-                  const label = disabled ? 'o3-pro (API Key Only)' : m;
-                  return (
-                    <button
-                      key={m}
-                      onClick={() => { if (!disabled) saveModel(m); }}
-                      disabled={disabled}
-                      aria-disabled={disabled}
-                      title={disabled ? 'Requires API key' : undefined}
-                      className={`w-full text-left px-2 py-1 rounded-md text-sm ${selectedModel===m ? 'bg-white/15' : 'hover:bg-white/10'} ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-                    >{label}</button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* API key prompt when needed */}
-          {needsKey && (
-            <div className="mt-4 p-3 rounded-lg bg-white/5 border border-white/10 text-left">
-              <div className="text-sm text-gray-200 mb-2">Free limit reached. Enter your API key to continue.</div>
+        )}
+        <div ref={searchRef} className="w-full max-w-2xl">
+          <div className="relative group" role="search" aria-label="Research search">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500/50 to-purple-500/50 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-500" />
+            <div className="relative bg-slate-900/90 backdrop-blur-xl rounded-2xl border border-white/10 p-2">
               <div className="flex items-center gap-2">
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Paste your API key"
-                  className="flex-1 h-10 bg-transparent border border-white/15 rounded-lg px-3 text-white placeholder:text-gray-400 focus:outline-none"
-                />
-                <Button onClick={handleSaveKey} disabled={savingKey} className="h-10 px-4">
-                  {savingKey ? 'Saving…' : 'Save & Retry'}
-                </Button>
+                <div className="flex-1 relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="w-full h-14 bg-transparent text-white pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-lg placeholder:text-gray-500 transition-all duration-200"
+                    placeholder={query ? "" : "Ask me anything about research..."}
+                    aria-label="Search query"
+                    autoComplete="off"
+                    spellCheck="true"
+                    maxLength="500"
+                    aria-describedby="search-help"
+                    role="searchbox"
+                    aria-expanded={showSuggestions}
+                    aria-autocomplete="list"
+                    aria-activedescendant={activeSuggestionIndex >= 0 ? `suggestion-${activeSuggestionIndex}` : undefined}
+                  />
+                  {/* Add character counter for long queries */}
+                  {query.length > 400 && (
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500">
+                      {query.length}/500
+                    </div>
+                  )}
+                </div>
+                <button
+                  ref={buttonRef}
+                  onClick={handleSearch}
+                  disabled={isSearching || !query.trim()}
+                  className={`h-14 px-6 font-medium rounded-xl transition-all duration-200 shadow-lg relative overflow-hidden ${
+                    isSearching || !query.trim()
+                      ? 'bg-gray-600 cursor-not-allowed opacity-50'
+                      : 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 hover:shadow-xl hover:scale-105 active:scale-95'
+                  }`}
+                  aria-label="Search"
+                  aria-busy={isSearching}
+                >
+                  {isSearching ? (
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      </div>
+                      <span>Searching...</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Search className="w-4 h-4" />
+                      <span>Search</span>
+                    </div>
+                  )}
+                </button>
               </div>
-              <div className="text-xs text-gray-400 mt-2">Key is stored locally in your browser and sent only with requests.</div>
+
+              {/* Quick Settings Bar */}
+              <div className="flex items-center justify-between px-4 py-2 border-t border-white/5 mt-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowSettings(!showSettings)}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors"
+                    aria-expanded={showSettings}
+                    aria-controls="settings-panel"
+                    aria-haspopup="true"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>Settings</span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${showSettings ? 'rotate-180' : ''}`} />
+                  </button>
+                  <button
+                    onClick={() => setShowKeyModal(true)}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>{apiKey ? 'API Key Set' : 'Add API Key'}</span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <span className="px-2 py-1 bg-white/5 rounded">{selectedModel}</span>
+                  <span className={`px-2 py-1 bg-white/5 rounded ${depthConfig[searchDepth].color}`}>{depthConfig[searchDepth].label}</span>
+                </div>
+              </div>
+            </div>
+            <div id="search-help" className="sr-only">
+              Enter your research question and press Enter or click Search to find relevant academic papers
+            </div>
+          </div>
+
+          {/* Settings Panel */}
+          {showSettings && (
+            <div id="settings-panel" className="mt-4 p-6 bg-slate-900/90 backdrop-blur-xl rounded-2xl border border-white/10 animate-in slide-in-from-top-2 duration-300" role="region" aria-label="Search settings">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Search Settings</h3>
+                <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded">Configure your search</span>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Search Depth with better descriptions */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Search Depth</label>
+                    <p className="text-xs text-gray-400 mb-3">More papers provide deeper insights but take longer</p>
+                  </div>
+                  <div className="space-y-2">
+                    {Object.entries(depthConfig).map(([key, config]) => {
+                      const Icon = config.icon;
+                      const disabled = !allowedDepths.includes(key);
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => { if (!disabled) { setSearchDepth(key); try { localStorage.setItem('search_depth', key); } catch {} } }}
+                          disabled={disabled}
+                          className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all group ${
+                            searchDepth === key
+                              ? 'bg-blue-500/10 border-blue-500/30 ring-1 ring-blue-500/20'
+                              : disabled
+                              ? 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed'
+                              : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                          }`}
+                          aria-pressed={searchDepth === key}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${searchDepth === key ? 'bg-blue-500/20' : 'bg-white/10'}`}>
+                              <Icon className={`w-4 h-4 ${config.color}`} aria-hidden="true" />
+                            </div>
+                            <div className="text-left">
+                              <div className="text-sm font-medium text-white">{config.label}</div>
+                              <div className="text-xs text-gray-400">{config.papers} • {key === 'low' ? '~30s' : key === 'med' ? '~60s' : '~120s'}</div>
+                            </div>
+                          </div>
+                          {searchDepth === key && (
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+                              <Check className="w-4 h-4 text-blue-400" aria-hidden="true" />
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Model Selection with better badges */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">AI Model</label>
+                    <p className="text-xs text-gray-400 mb-3">Choose the right model for your needs</p>
+                  </div>
+                  <div className="space-y-2">
+                    {models.map((model) => (
+                      <button
+                        key={model.id}
+                        onClick={() => { if (!model.requiresKey || apiKey) { setSelectedModel(model.id); try { localStorage.setItem('model_name', model.id); } catch {} } }}
+                        disabled={model.requiresKey && !apiKey}
+                        className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${
+                          selectedModel === model.id
+                            ? 'bg-purple-500/10 border-purple-500/30 ring-1 ring-purple-500/20'
+                            : model.requiresKey && !apiKey
+                            ? 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed'
+                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                        }`}
+                        aria-pressed={selectedModel === model.id}
+                      >
+                        <div className="text-left">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-white">{model.name}</span>
+                            {model.requiresKey && (
+                              <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/30">
+                                Premium
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-1">{model.badge}</div>
+                        </div>
+                        {selectedModel === model.id && <Check className="w-4 h-4 text-purple-400" aria-hidden="true" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Add quick reset button */}
+              <div className="mt-6 pt-4 border-t border-white/10">
+                <button
+                  onClick={() => {
+                    setSearchDepth('low');
+                    setSelectedModel('gpt-5-mini');
+                    try {
+                      localStorage.setItem('search_depth', 'low');
+                      localStorage.setItem('model_name', 'gpt-5-mini');
+                    } catch {}
+                  }}
+                  className="text-xs text-gray-400 hover:text-gray-300 transition-colors"
+                >
+                  Reset to defaults
+                </button>
+              </div>
             </div>
           )}
 
-          {/* Live error region present in DOM on load */}
-          <div id="error-messages" role="alert" aria-atomic="true" className="mt-3 min-h-[1rem] text-sm text-red-300">
-            {error}
+          {/* Error Message */}
+          {error && (
+            <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl backdrop-blur-sm animate-in slide-in-from-top-2" role="alert">
+              <div className="flex items-start gap-3">
+                <div className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0">
+                  <svg viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm text-red-400 font-medium">Search failed</p>
+                  <p className="text-xs text-red-300/80 mt-1">{error}</p>
+                  <button
+                    onClick={() => setError(null)}
+                    className="text-xs text-red-300 hover:text-red-200 mt-2 underline underline-offset-2"
+                  >
+                    Try again
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="mt-12 text-center text-xs text-gray-500">
+          <p>Free tier limits apply. Add API key to unlock premium models.</p>
+        </div>
+
+        {/* Add suggestions dropdown */}
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800/95 backdrop-blur-xl rounded-xl border border-white/10 shadow-2xl z-50 overflow-hidden">
+            {suggestions.map((suggestion, index) => (
+              <button
+                key={suggestion}
+                onClick={() => {
+                  setQuery(suggestion);
+                  setShowSuggestions(false);
+                  setActiveSuggestionIndex(-1);
+                }}
+                className={`w-full text-left px-4 py-3 text-sm transition-colors ${
+                  index === activeSuggestionIndex
+                    ? 'bg-blue-500/20 text-blue-300'
+                    : 'text-gray-300 hover:bg-white/5'
+                }`}
+              >
+                <Search className="w-4 h-4 inline mr-2 opacity-50" />
+                {suggestion}
+              </button>
+            ))}
           </div>
-
-          {/* Decorative corner dots removed for a cleaner silhouette */}
-        </div>
-
-        {/* Features */}
-        {/* Features section removed per feedback */}
+        )}
       </div>
 
-      {/* Scroll prompt removed per feedback */}
-    </div>
-    {/* Modal for API key */}
-    <KeyModal
-      open={showKeyModal}
-      apiKey={apiKey}
-      setApiKey={setApiKey}
-      onClose={closeKeyModal}
-      onSave={handleSaveKey}
-      saving={savingKey}
-    />
-    <DepthModal
-      open={showDepthModal}
-      value={searchDepth}
-      onClose={closeDepthModal}
-      onSave={handleSaveDepth}
-      allowedDepths={allowedDepths}
-    />
-    {/* Footer notice: free tier / API key */}
-    <div className="fixed inset-x-0 bottom-2 z-50 flex justify-center px-3">
-      <div className="text-[11px] md:text-xs text-gray-200 bg-black/50 border border-white/10 rounded-md px-3 py-2 backdrop-blur-sm">
-        This beta is limited to 2 questions on low/med resource settings. To enable o3-pro, use your API key to start or contact the creator.
-      </div>
-    </div>
-    </>
-  );
-};
-// Simple modal for API Key settings
-const KeyModal = ({ open, apiKey, setApiKey, onClose, onSave, saving }) => {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-      <div className="w-full max-w-md rounded-2xl bg-zinc-900 text-white border border-white/10 p-5 text-left">
-        <div className="text-lg font-semibold mb-2">API Key</div>
-        <p className="text-sm text-gray-300 mb-3">Paste your API key. It’s stored locally and sent with requests.</p>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="Paste your API key"
-          className="w-full h-11 bg-transparent border border-white/15 rounded-lg px-3 text-white placeholder:text-gray-400 focus:outline-none"
-        />
-        <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} className="h-10 px-4 rounded-lg bg-white/10 hover:bg-white/20">Cancel</button>
-          <button onClick={onSave} disabled={saving} className="h-10 px-4 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-600 disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+      {/* API Key Modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-slate-900 rounded-2xl border border-white/10 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">API Key Configuration</h3>
+              <button onClick={() => setShowKeyModal(false)} className="p-1 hover:bg-white/10 rounded-lg transition-colors" aria-label="Close API key modal">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-400 mb-4">Your API key is stored locally and used for authentication.</p>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Enter your API key"
+              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-white/20"
+              aria-label="Enter API key"
+            />
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowKeyModal(false)} className="flex-1 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors">Cancel</button>
+              <button onClick={() => { try { localStorage.setItem('user_api_key', apiKey); } catch {} setShowKeyModal(false); }} className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-lg transition-all">Save Key</button>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Add skip link at the top */}
+      <a href="#main-search" className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 bg-blue-600 text-white px-4 py-2 rounded-lg z-50">
+        Skip to search
+      </a>
+
+      {/* Add keyboard shortcuts hint */}
+      <div className="mt-8 text-center">
+        <p className="text-xs text-gray-500">
+          <kbd className="px-2 py-1 bg-white/10 rounded text-xs">Enter</kbd> to search •
+          <kbd className="px-2 py-1 bg-white/10 rounded text-xs ml-2">↑↓</kbd> to navigate suggestions
+        </p>
       </div>
     </div>
   );
 };
 
-// Modal for selecting search depth
-const DepthModal = ({ open, value, onClose, onSave, allowedDepths }) => {
-  if (!open) return null;
-  const Option = ({ opt, label }) => (
-    <button
-      onClick={() => allowedDepths.includes(opt) && onSave(opt)}
-      disabled={!allowedDepths.includes(opt)}
-      className={`px-4 py-2 rounded-lg border ${value===opt ? 'bg-cyan-600/30 border-cyan-400/50' : 'bg-white/10 border-white/15'} ${!allowedDepths.includes(opt) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/20'} text-white`}
-    >{label}</button>
-  );
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-      <div className="w-full max-w-md rounded-2xl bg-zinc-900 text-white border border-white/10 p-5 text-left">
-        <div className="text-lg font-semibold mb-2">Number of Resources Searched</div>
-        <p className="text-sm text-gray-300 mb-4">Choose how many papers to retrieve per source.</p>
-        <div className="flex items-center gap-2">
-          <Option opt="low" label="Low" />
-          <Option opt="med" label="Med" />
-          <Option opt="high" label="High" />
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button onClick={onClose} className="h-10 px-4 rounded-lg bg-white/10 hover:bg-white/20">Close</button>
-        </div>
-      </div>
-    </div>
-  );
-};
+export default SearchPage;
 
-export default SearchPage; 

@@ -9,9 +9,12 @@ basicConfig(level=INFO)
 _INSTRUCTIONS=(
         "# Role and Objective\n"
         "You are an elite scholarly synthesis engine. Analyze ONLY the provided paper data to produce a rigorous, concise synthesis.\n\n"
-        
-        "# One-question guardrail\n"
-        "If inputs are too thin for safe conclusions (e.g., no abstracts or < 2 items), begin with ONE targeted clarifying question on the first line; then proceed with a short limits note and what can be stated from the given data. Do not start a multi-turn.\n\n"
+
+        "# Persistence\n"
+        "Keep going until the synthesis is complete; do not hand back early. When uncertain, proceed with the most reasonable assumption and note it briefly.\n\n"
+
+        "# Tool preambles\n"
+        "Emit brief progress updates when applicable; keep narration minimal and focused on what changed.\n\n"
 
         "# Core Requirements\n"
         "• Badge each substantive claim with evidence tier: (in vitro), (animal), or (human RCT); add N if available, e.g., (human RCT, N=108).\n"
@@ -23,7 +26,8 @@ _INSTRUCTIONS=(
         "• Collapse weaker/indirect items (e.g., anti‑sickling, aquaculture, in‑silico) into a single ‘supporting signals’ sentence to save words.\n"
         "• Normalize symbols: use ≈ for approximate values; do not use ~.\n"
         "• References: full `Title — URL` (or `URL unavailable`).\n\n"
-        "• Define acronyms once and standardize units."
+        "• Define acronyms once and standardize units.\n"
+        "• **DO NOT ASK QUESTIONS TO THE USER**\n"
 
         "# Reasoning Steps\n"
         "1. Extract claims and classify evidence tier; capture N if present.\n"
@@ -33,8 +37,9 @@ _INSTRUCTIONS=(
         "5. Write final to the required format and length.\n\n"
 
         "# Output Format\n"
-        "Structure your response as:\n"
-        "- **Main synthesis** (≈260 words; inline badges + short-title citations)\n"
+        "Use Markdown only where semantically correct (lists, inline code). Structure your response as:\n"
+        "- **Title** (1 Sentence)\n"
+        "- **Main synthesis** (≈260 words; inline badges + short‑title citations)\n"
         "- **Key tensions & gaps** (3–5 bullets)\n"
         "- **Hypotheses & minimal tests** (max 2 bullets: Hypothesis → Test)\n"
         "- **References** (Title — URL)\n\n"
@@ -142,15 +147,16 @@ async def synthesis_output_guardrail(
         if unmatched:
             issues.append(f"Inline citations not found in References: {', '.join(unmatched)}")
 
-    return GuardrailFunctionOutput(output_info={"issues": issues, "word_count": main_wc}, tripwire_triggered=bool(issues))
+    # Do not hard-fail on formatting issues; surface them as info only
+    return GuardrailFunctionOutput(output_info={"issues": issues, "word_count": main_wc}, tripwire_triggered=False)
 
 async def synthesize_papers_async(papers_text: str, model: str | None = None, user_api_key: str | None = None) -> str:
     """Async version - Summarize arXiv papers into a short explanatory overview with citations."""
-    chosen_model = model or os.getenv("SUMMARIZER_MODEL", "gpt-4o-mini")
+    chosen_model = model or os.getenv("SUMMARIZER_MODEL", "gpt-5-mini")
     summarizer = _build_summarizer(chosen_model)
     try:
         run_cfg = RunConfig(trace_include_sensitive_data=False)
         result = await Runner.run(summarizer, papers_text, session=None, run_config=run_cfg)
         return result.final_output
-    except Exception:
-        return "Synthesis unavailable without a valid model/API key. Provide an API key to enable AI synthesis."
+    except Exception as exc:
+        return f"Synthesis unavailable: {exc}"

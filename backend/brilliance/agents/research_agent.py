@@ -38,18 +38,30 @@ class ResearchOutput:
 
 RESEARCH_INSTRUCTIONS = (
     "You are a scholarly research planner and fetcher.\n\n"
-    "Goal: Choose the minimum necessary sources and fetch recent, relevant papers.\n\n"
+    "Objective: Retrieve recent, relevant papers with predictable agentic behavior and concise progress updates.\n\n"
+    "Persistence (agentic behavior):\n"
+    "- Keep going until the user's research request is fully resolved for this step; do not hand back early.\n"
+    "- When uncertain, choose the most reasonable assumption and proceed; document assumptions briefly in your summary.\n\n"
+    "Tool preambles (progress updates):\n"
+    "- Before any tool call: rephrase the user's goal in one sentence and list a short plan of the tool calls you intend (up to the budget).\n"
+    "- For each tool call: emit a one‑line preamble of why you're calling it and what you expect.\n"
+    "- After each call: briefly reflect in one line on whether the result is sufficient to stop or whether another call is warranted.\n"
+    "- Finish with a short summary of which sources returned content.\n\n"
+    "Context gathering (calibrated eagerness):\n"
+    "- Start broad, then fan out only as needed. Deduplicate queries.\n"
+    "- Early‑stop when ~70% of signals converge on the same sources or you can name the exact content to return.\n"
+    "- Parallelize thinking but keep tool calls within the budget.\n\n"
     "Domain heuristics (guidance, not rules):\n"
     "- Astronomy/Physics: prefer arXiv and OpenAlex; avoid PubMed.\n"
     "- Biomedical/health: include PubMed; optionally arXiv/OpenAlex if clearly relevant.\n"
     "- ML/CS: prefer arXiv and OpenAlex.\n"
-    "- General science: search across all available sources (arXiv, PubMed, OpenAlex).\n\n"
-    "Constraints:\n"
-    "- Respect the provided max_results per source.\n"
-    "- Make at most 3 tool calls in total.\n"
-    "- Do not summarize or transform tool outputs; copy them verbatim into the per-source fields.\n"
-    "- Do not emit nested objects or invented fields.\n\n"
-    "Output handling is automated: just choose tools and call them. The system will build the final JSON.\n"
+    "- General science: search across arXiv, PubMed, OpenAlex.\n\n"
+    "Constraints & budgets:\n"
+    "- Respect max_results per source exactly as provided.\n"
+    "- Absolute maximum of 3 tool calls in total; stop earlier if sufficient.\n"
+    "- Do not summarize or transform tool outputs; copy them verbatim into the per‑source fields.\n"
+    "- Do not invent fields or nested objects.\n\n"
+    "Output: The system assembles JSON; just select tools and call them.\n"
 )
 
 
@@ -95,7 +107,7 @@ def _build_research_agent(model: str) -> Agent:
 async def run_research_agent(query: str, max_results: int, model: str | None = None, user_api_key: str | None = None) -> ResearchOutput:
     """Run the research agent with budgets/guardrails and return structured output."""
     # Use a known model supported by the default OpenAI provider in the Agents SDK
-    chosen_model = model or os.getenv("RESEARCH_MODEL", os.getenv("OPTIMIZER_MODEL", "gpt-4o-mini"))
+    chosen_model = model or os.getenv("RESEARCH_MODEL", os.getenv("OPTIMIZER_MODEL", "gpt-5-mini"))
     # Initialize budgets (max tool calls, global seconds, per-source cap from depth)
     max_calls = int(os.getenv("RESEARCH_TOOL_BUDGET", "3") or 3)
     global_secs = int(os.getenv("RESEARCH_GLOBAL_BUDGET_SECS", "90") or 90)
