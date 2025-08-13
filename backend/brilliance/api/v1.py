@@ -222,7 +222,29 @@ def create_app() -> Flask:
             dest = dest_raw.split(",")[0].strip()
             if dest:
                 return redirect(dest, code=302)
-        return {"message": "Brilliance API", "endpoints": ["/health", "/limits", "POST /research"]}, 200
+        return {"message": "Brilliance API", "endpoints": ["/health", "/examples", "/limits", "POST /research"]}, 200
+
+    @app.get("/examples")
+    def examples() -> tuple[dict, int]:
+        """Return a curated list of example research queries."""
+        example_queries = [
+            "What are the latest breakthroughs in protein folding using AlphaFold?",
+            "How do current climate models compare in predicting sea level rise?",
+            "What trends are emerging in single-cell RNA sequencing analysis?",
+            "Which Alzheimer's clinical trials showed promise in 2024?",
+            "What foundation models are best suited for biological research?",
+            "How is CRISPR being used in cancer immunotherapy?",
+            "What advances have been made in quantum computing algorithms?",
+            "How effective are mRNA vaccines against emerging variants?",
+            "What role does the gut microbiome play in neurodegenerative diseases?",
+            "How are large language models transforming computational biology research?",
+            "What recent developments exist in neuromorphic computing architectures?",
+            "How do epigenetic modifications influence cancer drug resistance?",
+            "What progress has been made in fusion energy reactor designs?",
+            "How are organoids being used to model human diseases?",
+            "What new insights exist about dark matter detection methods?"
+        ]
+        return {"examples": example_queries}, 200
 
     @app.get("/limits")
     def limits() -> tuple[dict, int]:
@@ -243,6 +265,19 @@ def create_app() -> Flask:
         query = (payload.get("query") or "").strip()
         max_results_raw = payload.get("max_results", 3)
         model = (payload.get("model") or "").strip() or None
+        # Reasoning/verbosity controls (default to high reasoning if unspecified)
+        def _norm_effort(val: str | None) -> str | None:
+            if not val:
+                return None
+            v = str(val).strip().lower()
+            return {"min": "minimal", "minimal": "minimal", "low": "low", "med": "medium", "medium": "medium", "high": "high"}.get(v, v)
+        def _norm_verbosity(val: str | None) -> str | None:
+            if not val:
+                return None
+            v = str(val).strip().lower()
+            return {"low": "low", "med": "medium", "medium": "medium", "high": "high"}.get(v, v)
+        reasoning_effort = _norm_effort(payload.get("reasoning_effort") or os.getenv("DEFAULT_REASONING_EFFORT", "high"))
+        verbosity = _norm_verbosity(payload.get("verbosity") or os.getenv("DEFAULT_VERBOSITY"))
         try:
             max_results = int(max_results_raw)
         except Exception:
@@ -294,6 +329,8 @@ def create_app() -> Flask:
                     user_query=query,
                     max_results=max_results,
                     model=model,
+                    reasoning_effort=reasoning_effort,
+                    verbosity=verbosity,
                 )
             )
             return jsonify(results), 200

@@ -25,24 +25,11 @@ const ResultsPage = ({ results, onBack }) => {
   const headingRef = useRef(null);
   useEffect(() => { headingRef.current?.focus(); }, []);
 
-  if (!results || !results.synthesis) {
-    return (
-      <div ref={containerRef} className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <div ref={contentRef} className="text-center">
-          <div className="text-6xl mb-4">🤔</div>
-          <h2 className="text-2xl font-bold text-white mb-2">No Results Found</h2>
-          <p className="text-gray-400 mb-6">Try a different search query</p>
-          <Button onClick={onBack} className="bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-600 hover:to-purple-700">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Search
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   // Build references from synthesis + enrich with metadata from raw_results
   const { transformedMd, references } = useMemo(() => {
+    if (!results || !results.synthesis) {
+      return { transformedMd: '', references: [] };
+    }
     const md = results.synthesis || '';
     if (!md || typeof md !== 'string') return md;
     try {
@@ -73,8 +60,11 @@ const ResultsPage = ({ results, onBack }) => {
         }
       }
 
-      // Replace inline citations [Short Title, 2025] with anchored Cite N pills linked to reference URL
-      const linked = md.replace(/\[([^\]]+?)\]/g, (full, content) => {
+      // Remove original References section; we'll render cards for refs
+      const bodyOnly = refsStart >= 0 ? md.slice(0, refHeaderMatch.index).trimEnd() : md;
+
+      // Replace inline citations [Short Title, 2025] within body with anchored Cite N pills linked to reference URL
+      const linked = bodyOnly.replace(/\[([^\]]+?)\]/g, (full, content) => {
         // Derive short key: take content before the last comma if present
         const parts = content.split(',');
         const shortKey = parts.length > 1 ? parts.slice(0, -1).join(',').trim() : content.trim();
@@ -95,9 +85,6 @@ const ResultsPage = ({ results, onBack }) => {
         if (n) pills.push(bluePill(`N=${n}`));
         return ` ${pills.join(' ')} `;
       });
-
-      // Strip original References section from markdown; we will render cards instead
-      const mdWithoutRefs = refsStart >= 0 ? md.slice(0, refHeaderMatch.index).trimEnd() : md;
 
       // Enrich references with metadata parsed from raw_results blocks
       try {
@@ -124,12 +111,29 @@ const ResultsPage = ({ results, onBack }) => {
         }
       } catch {}
 
-      return { transformedMd: mdWithoutRefs.replace(/\s+$/, '') + '\n\n' + withEvidence, references: refsArray };
+      // Return only transformed body to avoid duplication
+      return { transformedMd: withEvidence, references: refsArray };
     } catch {
       return { transformedMd: md, references: [] };
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results.synthesis, results.raw_results]);
+
+  if (!results || !results.synthesis) {
+    return (
+      <div ref={containerRef} className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+        <div ref={contentRef} className="text-center">
+          <div className="text-6xl mb-4">🤔</div>
+          <h2 className="text-2xl font-bold text-white mb-2">No Results Found</h2>
+          <p className="text-gray-400 mb-6">Try a different search query</p>
+          <Button onClick={onBack} className="bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-600 hover:to-purple-700">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Search
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">

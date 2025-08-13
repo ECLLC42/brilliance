@@ -16,7 +16,7 @@ from brilliance.synthesis.synthesis_tool import synthesize_papers_async
 from brilliance.celery_app import celery_app
 
 
-async def multi_source_search(query: str, max_results: int = 3, model: str | None = None, user_api_key: str | None = None) -> Dict[str, Any]:
+async def multi_source_search(query: str, max_results: int = 3, model: str | None = None, user_api_key: str | None = None, reasoning_effort: str | None = None, verbosity: str | None = None) -> Dict[str, Any]:
     """Fetch research results from sources.
 
     Strategy is controlled by RESEARCH_STRATEGY env var:
@@ -56,7 +56,7 @@ async def multi_source_search(query: str, max_results: int = 3, model: str | Non
         }
 
     # Agent-planned strategy (default)
-    agent_out = await run_research_agent(query, max_results, model, user_api_key=user_api_key)
+    agent_out = await run_research_agent(query, max_results, model, user_api_key=user_api_key, reasoning_effort=reasoning_effort, verbosity=verbosity)
     return {
         "arxiv": agent_out.sources.get("arxiv", "No results"),
         "pubmed": agent_out.sources.get("pubmed", "No results"),
@@ -193,7 +193,7 @@ def rank_and_trim_results(all_results: Dict[str, Any], query: str, max_total: in
         return all_results
 
 
-async def orchestrate_research(user_query: str, max_results: int = 3, model: str | None = None, user_api_key: str | None = None) -> Dict[str, Any]:
+async def orchestrate_research(user_query: str, max_results: int = 3, model: str | None = None, user_api_key: str | None = None, reasoning_effort: str | None = None, verbosity: str | None = None) -> Dict[str, Any]:
     """
     Main orchestration function for research queries with optimization.
     
@@ -207,7 +207,7 @@ async def orchestrate_research(user_query: str, max_results: int = 3, model: str
     print(f"🔍 Optimizing query (len={len(user_query)})")
     
     # Search across sources with optimization
-    search_results = await multi_source_search(user_query, max_results, model, user_api_key=user_api_key)
+    search_results = await multi_source_search(user_query, max_results, model, user_api_key=user_api_key, reasoning_effort=reasoning_effort, verbosity=verbosity)
     # Rank globally and trim to the requested max total
     trimmed_results = rank_and_trim_results(search_results, user_query, max_results)
     
@@ -241,7 +241,7 @@ async def orchestrate_research(user_query: str, max_results: int = 3, model: str
         synthesis_prompt = f"User Query: {user_query}\n\nPaper Data:\n{combined_papers}"
         
         # Generate AI synthesis
-        synthesis = await synthesize_papers_async(synthesis_prompt, model, user_api_key=user_api_key)
+        synthesis = await synthesize_papers_async(synthesis_prompt, model, user_api_key=user_api_key, reasoning_effort=reasoning_effort, verbosity=verbosity)
         final_results["synthesis"] = synthesis
     else:
         final_results["synthesis"] = "No papers found to analyze."

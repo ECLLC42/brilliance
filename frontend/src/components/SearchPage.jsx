@@ -3,8 +3,10 @@ import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import { Search, Key, Sparkles, Settings, ChevronDown, X, Check, Zap, BookOpen, Beaker } from 'lucide-react';
 import ResultsPage from './ResultsPage';
+import AnimatedExamples from './AnimatedExamples';
+import LoadingScreen from './LoadingScreen';
 import { debounce } from 'lodash-es';
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 
 const SearchPage = () => {
   const [query, setQuery] = useState('');
@@ -16,11 +18,16 @@ const SearchPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [searchDepth, setSearchDepth] = useState('low');
   const [selectedModel, setSelectedModel] = useState('gpt-5-mini');
-  const [currentExampleIndex, setCurrentExampleIndex] = useState(0);
   const [allowedDepths, setAllowedDepths] = useState(['low', 'med']);
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const [examples, setExamples] = useState([
+    'What are the latest breakthroughs in protein folding using AlphaFold?',
+    'How do current climate models compare in predicting sea level rise?',
+    'What trends are emerging in single-cell RNA sequencing analysis?',
+  ]);
+  const abortControllerRef = useRef(null);
 
   // Popular research topics for suggestions
   const popularTopics = [
@@ -36,22 +43,10 @@ const SearchPage = () => {
 
   const getApiBase = () => (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
 
-  const examples = [
-    'What are the latest breakthroughs in protein folding using AlphaFold?',
-    'How do current climate models compare in predicting sea level rise?',
-    'What trends are emerging in single-cell RNA sequencing analysis?',
-    "Which Alzheimer's clinical trials showed promise in 2024?",
-    'What foundation models are best suited for biological research?',
-    'How is CRISPR being used in cancer immunotherapy?',
-    'What advances have been made in quantum computing algorithms?',
-    'How effective are mRNA vaccines against emerging variants?'
-  ];
-
   const containerRef = useRef(null);
   const titleRef = useRef(null);
   const searchRef = useRef(null);
   const inputRef = useRef(null);
-  const placeholderRef = useRef(null);
   const buttonRef = useRef(null);
 
   // Initial animations
@@ -61,17 +56,7 @@ const SearchPage = () => {
       .fromTo(searchRef.current, { opacity: 0, scale: 0.95 }, { opacity: 1, scale: 1, duration: 0.6, ease: 'power2.out' }, '-=0.4');
   }, { scope: containerRef });
 
-  // Animated placeholder text
-  useGSAP(() => {
-    if (query.trim().length > 0 || !placeholderRef.current) return;
-    const tl = gsap.timeline({ repeat: -1 });
-    examples.forEach((_, index) => {
-      tl.call(() => setCurrentExampleIndex(index))
-        .fromTo(placeholderRef.current, { x: 30, opacity: 0 }, { x: 0, opacity: 0.5, duration: 0.5, ease: 'power2.out' })
-        .to(placeholderRef.current, { x: -30, opacity: 0, duration: 0.5, ease: 'power2.in', delay: 3 });
-    });
-    return () => tl.kill();
-  }, [query]);
+
 
   // Load saved preferences
   useEffect(() => {
@@ -83,6 +68,26 @@ const SearchPage = () => {
       const savedModel = localStorage.getItem('model_name');
       if (savedModel) setSelectedModel(savedModel);
     } catch {}
+  }, []);
+
+  // Fetch examples from backend
+  useEffect(() => {
+    const fetchExamples = async () => {
+      try {
+        const apiBase = getApiBase();
+        const res = await fetch(`${apiBase}/examples`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.examples) && data.examples.length > 0) {
+            setExamples(data.examples);
+          }
+        }
+      } catch (error) {
+        console.log('Failed to fetch examples, using defaults:', error);
+        // Keep the default examples if fetch fails
+      }
+    };
+    fetchExamples();
   }, []);
 
   // Fetch allowed depths from backend
@@ -113,7 +118,7 @@ const SearchPage = () => {
         setShowSuggestions(false);
       }
     }, 300),
-    []
+    [popularTopics]
   );
 
   useEffect(() => {
@@ -123,15 +128,26 @@ const SearchPage = () => {
 
   const handleSearch = async () => {
     if (!query.trim()) return;
+    
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new abort controller for this request
+    abortControllerRef.current = new AbortController();
+    
     setIsSearching(true);
     setError(null);
     gsap.to(buttonRef.current, { scale: 0.95, duration: 0.1, yoyo: true, repeat: 1 });
+    
     try {
       const apiBase = process.env.REACT_APP_API_URL || '';
       const response = await fetch(`${apiBase}/research`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'X-User-Api-Key': apiKey } : {}) },
-        body: JSON.stringify({ query: query.trim(), max_results: depthToMax(searchDepth), model: selectedModel })
+        body: JSON.stringify({ query: query.trim(), max_results: depthToMax(searchDepth), model: selectedModel }),
+        signal: abortControllerRef.current.signal
       });
       if (response.status === 202) {
         const queued = await response.json().catch(() => ({}));
@@ -151,9 +167,14 @@ const SearchPage = () => {
       setResults(data);
       setError(null);
     } catch (e) {
+      // Don't show error if request was aborted
+      if (e.name === 'AbortError') {
+        return;
+      }
       setError(e.message || 'Something went wrong. Please try again.');
     } finally {
       setIsSearching(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -219,6 +240,22 @@ const SearchPage = () => {
     }
   };
 
+  // Show loading screen when searching
+  if (isSearching) {
+    return (
+      <LoadingScreen 
+        query={query}
+        onCancel={() => {
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+          }
+          setIsSearching(false);
+          setError(null); // Don't show error for user cancellation
+        }}
+      />
+    );
+  }
+
   // Show results page if we have results
   if (results) {
     return <ResultsPage results={results} onBack={() => { setResults(null); setQuery(''); }} />;
@@ -246,13 +283,8 @@ const SearchPage = () => {
         </div>
 
         {/* Search Container */}
-        {/* Rotating example just above the search box */}
-        {!query && (
-          <div className="mb-3 text-center">
-            <span className="text-base md:text-lg text-gray-300/90 italic">e.g., </span>
-            <span className="text-base md:text-lg text-gray-200/90">“{examples[currentExampleIndex]}”</span>
-          </div>
-        )}
+        {/* Animated examples above the search box */}
+        <AnimatedExamples examples={examples} isVisible={!query} />
         <div ref={searchRef} className="w-full max-w-2xl">
           <div className="relative group" role="search" aria-label="Research search">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500/50 to-purple-500/50 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-500" />
@@ -273,7 +305,7 @@ const SearchPage = () => {
                     spellCheck="true"
                     maxLength="500"
                     aria-describedby="search-help"
-                    role="searchbox"
+                    role="combobox"
                     aria-expanded={showSuggestions}
                     aria-autocomplete="list"
                     aria-activedescendant={activeSuggestionIndex >= 0 ? `suggestion-${activeSuggestionIndex}` : undefined}

@@ -104,7 +104,7 @@ def _build_research_agent(model: str) -> Agent:
     )
 
 
-async def run_research_agent(query: str, max_results: int, model: str | None = None, user_api_key: str | None = None) -> ResearchOutput:
+async def run_research_agent(query: str, max_results: int, model: str | None = None, user_api_key: str | None = None, reasoning_effort: str | None = None, verbosity: str | None = None) -> ResearchOutput:
     """Run the research agent with budgets/guardrails and return structured output."""
     # Use a known model supported by the default OpenAI provider in the Agents SDK
     chosen_model = model or os.getenv("RESEARCH_MODEL", os.getenv("OPTIMIZER_MODEL", "gpt-5-mini"))
@@ -121,8 +121,14 @@ async def run_research_agent(query: str, max_results: int, model: str | None = N
             "When calling tools, pass max_results exactly as provided."
         )
         # Build a RunConfig that disables sensitive data in tracing and, if needed, injects a per-run model provider
-        from agents import RunConfig
-        run_cfg = RunConfig(trace_include_sensitive_data=False)
+        from agents import RunConfig, ModelSettings
+        # Apply reasoning/verbosity if provided
+        ms = ModelSettings()
+        if reasoning_effort:
+            ms.reasoning = {"effort": reasoning_effort}
+        if verbosity:
+            ms.verbosity = verbosity  # 'low' | 'medium' | 'high'
+        run_cfg = RunConfig(trace_include_sensitive_data=False, model_settings=ms)
         # TODO: if we decide to bind the user's key to the model provider, do it here
         result = await Runner.run(agent, user_msg, run_config=run_cfg)
         return result.final_output  # type: ignore[attr-defined]

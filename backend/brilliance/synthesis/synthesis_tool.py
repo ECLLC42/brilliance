@@ -8,35 +8,42 @@ basicConfig(level=INFO)
 
 _INSTRUCTIONS=(
         "# Role and Objective\n"
-        "You are an elite scholarly synthesis engine. Analyze ONLY the provided paper data to produce a rigorous, concise synthesis.\n\n"
+        "You are an elite scholarly synthesis engine. Analyze ONLY the provided paper data to produce a rigorous, concise final report.\n\n"
 
-        "# Persistence\n"
-        "Keep going until the synthesis is complete; do not hand back early. When uncertain, proceed with the most reasonable assumption and note it briefly.\n\n"
+        "# Critical Output Requirements\n"
+        "• **OUTPUT ONLY THE FINAL REPORT** — No thinking, no status updates, no explanations of your process\n"
+        "• **NO TOOL PREAMBLES** — Do not announce what you are doing or provide progress updates\n"
+        "• **DIRECT TO FINAL ANSWER** — Go straight to the structured report without commentary\n\n"
 
-        "# Tool preambles\n"
-        "Emit brief progress updates when applicable; keep narration minimal and focused on what changed.\n\n"
+        "# Persistence and Reasoning\n"
+        "You are an agent — keep going until the synthesis is complete before ending your turn. "
+        "Never stop or hand back to the user when you encounter uncertainty — research or deduce the most reasonable approach and continue. "
+        "Do not ask the human to confirm or clarify assumptions, as you can always adjust later — decide what the most reasonable assumption is, proceed with it, and document it for the user's reference after you finish acting.\n\n"
 
-        "# Core Requirements\n"
+        "# Context Gathering Approach\n"
+        "Goal: Get enough context fast. Parallelize discovery and stop as soon as you can act.\n"
+        "Method:\n"
+        "- Start broad, then fan out to focused subqueries.\n"
+        "- In parallel, launch varied queries; read top hits per query. Deduplicate paths and cache; don't repeat queries.\n"
+        "- Avoid over searching for context. If needed, run targeted searches in one parallel batch.\n"
+        "Early stop criteria:\n"
+        "- You can name exact content to change.\n"
+        "- Top hits converge (~70%) on one area/path.\n"
+        "Loop: Batch search → minimal plan → complete task.\n\n"
+
+        "# Evidence and Citation Requirements\n"
         "• Badge each substantive claim with evidence tier: (in vitro), (animal), or (human RCT); add N if available, e.g., (human RCT, N=108).\n"
         "• Quantify when possible: direction and order of magnitude, or at least arrows (e.g., ↑ NO bioavailability in rat model).\n"
         "• Add a **Key tensions & gaps** section (3–5 bullets): contradictions, heterogeneity, and open variables (dose, matrix, timing).\n"
         "• Label extrapolations explicitly as **Hypothesis** and pair each with a minimal test (model, endpoint, success criterion). Keep ≤2 hypotheses (pick the two with highest expected value).\n"
         "• Tighten the **Main synthesis** to ≈260 words (stay within 220–300); move details to bullets.\n"
         "• Citations: short titles + year inline, e.g., [Garlic BP Meta‑analysis, 2025]. The short title must EXACTLY match the key used in References.\n"
-        "• Collapse weaker/indirect items (e.g., anti‑sickling, aquaculture, in‑silico) into a single ‘supporting signals’ sentence to save words.\n"
+        "• Collapse weaker/indirect items (e.g., anti‑sickling, aquaculture, in‑silico) into a single 'supporting signals' sentence to save words.\n"
         "• Normalize symbols: use ≈ for approximate values; do not use ~.\n"
-        "• References: full `Title — URL` (or `URL unavailable`).\n\n"
-        "• Define acronyms once and standardize units.\n"
-        "• **DO NOT ASK QUESTIONS TO THE USER**\n"
+        "• References: full `Title — URL` (or `URL unavailable`).\n"
+        "• Define acronyms once and standardize units.\n\n"
 
-        "# Reasoning Steps\n"
-        "1. Extract claims and classify evidence tier; capture N if present.\n"
-        "2. Quantify effects/pathways; prefer numbers; else arrows.\n"
-        "3. Reconcile conflicts; surface gaps.\n"
-        "4. Formulate hypotheses + minimal tests.\n"
-        "5. Write final to the required format and length.\n\n"
-
-        "# Output Format\n"
+        "# Final Output Format\n"
         "Use Markdown only where semantically correct (lists, inline code). Structure your response as:\n"
         "- **Title** (1 Sentence)\n"
         "- **Main synthesis** (≈260 words; inline badges + short‑title citations)\n"
@@ -44,7 +51,7 @@ _INSTRUCTIONS=(
         "- **Hypotheses & minimal tests** (max 2 bullets: Hypothesis → Test)\n"
         "- **References** (Title — URL)\n\n"
 
-        "Produce only these sections."
+        "Produce ONLY these sections in the exact format shown. No additional commentary, explanations, or status updates."
     )
 
 def _build_summarizer(model: str) -> Agent:
@@ -150,12 +157,19 @@ async def synthesis_output_guardrail(
     # Do not hard-fail on formatting issues; surface them as info only
     return GuardrailFunctionOutput(output_info={"issues": issues, "word_count": main_wc}, tripwire_triggered=False)
 
-async def synthesize_papers_async(papers_text: str, model: str | None = None, user_api_key: str | None = None) -> str:
+async def synthesize_papers_async(papers_text: str, model: str | None = None, user_api_key: str | None = None, reasoning_effort: str | None = None, verbosity: str | None = None) -> str:
     """Async version - Summarize arXiv papers into a short explanatory overview with citations."""
     chosen_model = model or os.getenv("SUMMARIZER_MODEL", "gpt-5-mini")
     summarizer = _build_summarizer(chosen_model)
     try:
-        run_cfg = RunConfig(trace_include_sensitive_data=False)
+        # Standard run config compatible with OpenAI Agents SDK + optional model settings
+        from agents import ModelSettings
+        ms = ModelSettings()
+        if reasoning_effort:
+            ms.reasoning = {"effort": reasoning_effort}
+        if verbosity:
+            ms.verbosity = verbosity
+        run_cfg = RunConfig(trace_include_sensitive_data=False, model_settings=ms)
         result = await Runner.run(summarizer, papers_text, session=None, run_config=run_cfg)
         return result.final_output
     except Exception as exc:
