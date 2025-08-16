@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* iOS viewport and tap behavior */
+html, body { height: -webkit-fill-available; -webkit-text-size-adjust: 100%; }
+* { -webkit-tap-highlight-color: transparent; }
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -75,7 +79,35 @@
   .animate-bounce-slow {
     animation: bounce-slow 2.2s ease-in-out infinite;
   }
+
+  /* iOS/mobile helpers */
+  .min-h-svh {
+    min-height: 100svh;
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .mb-safe {
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
 }
+
+/* Backdrop-filter fallbacks for iOS without blur support */
+@supports not ((-webkit-backdrop-filter: none) or (backdrop-filter: none)) {
+  .glassmorphism-dark { background: rgba(14, 23, 42, 0.85) !important; }
+  .glassmorphism-light { background: rgba(255, 255, 255, 0.85) !important; }
+}
+
+/* Use dynamic viewport on supported browsers to handle URL bar collapse */
+@supports (height: 100dvh) {
+  .min-h-svh { min-height: 100dvh; }
+}
+
+/* Avoid iOS zoom on inputs */
+input, textarea { font-size: 16px; }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {

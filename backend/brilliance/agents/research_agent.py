@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from agents import Agent, Runner, AgentOutputSchema, ToolsToFinalOutputResult
 
@@ -56,6 +56,11 @@ RESEARCH_INSTRUCTIONS = (
     "- Biomedical/health: include PubMed; optionally arXiv/OpenAlex if clearly relevant.\n"
     "- ML/CS: prefer arXiv and OpenAlex.\n"
     "- General science: search across arXiv, PubMed, OpenAlex.\n\n"
+    "Query optimization tips:\n"
+    "- arXiv: Use specific technical terms, acronyms, and key concepts. Natural language works well.\n"
+    "- PubMed: Include medical/biological terms, disease names, treatment types.\n"
+    "- OpenAlex: Broader interdisciplinary terms work well.\n"
+    "- Avoid overly generic terms; be specific about the research domain.\n\n"
     "Constraints & budgets:\n"
     "- Respect max_results per source exactly as provided.\n"
     "- Absolute maximum of 3 tool calls in total; stop earlier if sufficient.\n"
@@ -65,7 +70,20 @@ RESEARCH_INSTRUCTIONS = (
 )
 
 
-def _build_research_agent(model: str) -> Agent:
+def _build_research_agent(model: str, enabled_sources: Optional[List[str]] = None) -> Agent:
+    # Default to all sources if none specified
+    if enabled_sources is None:
+        enabled_sources = ["arxiv", "pubmed", "openalex"]
+    
+    # Build tools list based on enabled sources
+    tools = []
+    if "arxiv" in enabled_sources:
+        tools.append(arxiv_search)
+    if "pubmed" in enabled_sources:
+        tools.append(pubmed_search)
+    if "openalex" in enabled_sources:
+        tools.append(openalex_search)
+    
     # Custom tool-to-output: Convert tool results directly into our schema to avoid LLM formatting drift
     async def _tools_to_output(ctx, tool_results):
         sources: Dict[str, str] = {"arxiv": "No results", "pubmed": "No results", "openalex": "No results"}
@@ -98,13 +116,13 @@ def _build_research_agent(model: str) -> Agent:
         name="research_agent",
         instructions=RESEARCH_INSTRUCTIONS,
         model=model,
-        tools=[arxiv_search, openalex_search, pubmed_search],
+        tools=tools,
         output_type=AgentOutputSchema(ResearchOutput, strict_json_schema=False),
         tool_use_behavior=_tools_to_output,
     )
 
 
-async def run_research_agent(query: str, max_results: int, model: str | None = None, user_api_key: str | None = None, reasoning_effort: str | None = None, verbosity: str | None = None) -> ResearchOutput:
+async def run_research_agent(query: str, max_results: int, model: Optional[str] = None, user_api_key: Optional[str] = None, reasoning_effort: Optional[str] = None, verbosity: Optional[str] = None, enabled_sources: Optional[List[str]] = None) -> ResearchOutput:
     """Run the research agent with budgets/guardrails and return structured output."""
     # Use a known model supported by the default OpenAI provider in the Agents SDK
     chosen_model = model or os.getenv("RESEARCH_MODEL", os.getenv("OPTIMIZER_MODEL", "gpt-5-mini"))
@@ -114,7 +132,7 @@ async def run_research_agent(query: str, max_results: int, model: str | None = N
     per_source_cap = max(1, int(max_results))
     set_research_budget(max_calls=max_calls, global_seconds=global_secs, per_source_max=per_source_cap)
     try:
-        agent = _build_research_agent(chosen_model)
+        agent = _build_research_agent(chosen_model, enabled_sources)
         user_msg = (
             f"User Query: {query}\n\n"
             f"max_results: {max_results}\n"

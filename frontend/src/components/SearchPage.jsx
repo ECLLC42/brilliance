@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
-import { Search, Key, Sparkles, Settings, ChevronDown, X, Check, Zap, BookOpen, Beaker } from 'lucide-react';
+import { Search, Key, Sparkles, Settings, ChevronDown, X, Check, Zap, BookOpen, Beaker, Database } from 'lucide-react';
 import ResultsPage from './ResultsPage';
 import AnimatedExamples from './AnimatedExamples';
 import LoadingScreen from './LoadingScreen';
@@ -19,13 +19,31 @@ const SearchPage = () => {
   const [searchDepth, setSearchDepth] = useState('low');
   const [selectedModel, setSelectedModel] = useState('gpt-5-mini');
   const [allowedDepths, setAllowedDepths] = useState(['low', 'med']);
+  const [selectedSources, setSelectedSources] = useState(['arxiv', 'pubmed', 'openalex']);
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const [examples, setExamples] = useState([
-    'What are the latest breakthroughs in protein folding using AlphaFold?',
-    'How do current climate models compare in predicting sea level rise?',
-    'What trends are emerging in single-cell RNA sequencing analysis?',
+    'AlphaFold limits in membrane proteins?',
+    'Bias in climate ensemble forecasts?',
+    'Single-cell RNA: batch effects best fix?',
+    'Graph transformers for drug design?',
+    'Causal RL for healthcare triage?',
+    'LLMs for synthesis: hallucination guards?',
+    'Cryo-EM map denoising with diffusion?',
+    'Protein language models vs structures?',
+    'Quantum error mitigation near term?',
+    'Genome editing off-target prediction?',
+    'Multimodal fusion for radiology?',
+    'Meta-analysis: small-study bias fixes?',
+    'Human-in-the-loop active learning gains?',
+    'Counterfactuals for policy evaluation?',
+    'Self-supervised pretraining for EHRs?',
+    'Robustness of RCTs vs observational?',
+    'Efficient retrieval for long contexts?',
+    'Scalable Bayesian inference tricks?',
+    'Fairness metrics under distribution shift?',
+    'Weak supervision for labeling at scale?'
   ]);
   const abortControllerRef = useRef(null);
 
@@ -67,6 +85,15 @@ const SearchPage = () => {
       if (savedDepth && ['low', 'med', 'high'].includes(savedDepth)) setSearchDepth(savedDepth);
       const savedModel = localStorage.getItem('model_name');
       if (savedModel) setSelectedModel(savedModel);
+      const savedSources = localStorage.getItem('selected_sources');
+      if (savedSources) {
+        try {
+          const sources = JSON.parse(savedSources);
+          if (Array.isArray(sources) && sources.length > 0) {
+            setSelectedSources(sources);
+          }
+        } catch {}
+      }
     } catch {}
   }, []);
 
@@ -146,7 +173,12 @@ const SearchPage = () => {
       const response = await fetch(`${apiBase}/research`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'X-User-Api-Key': apiKey } : {}) },
-        body: JSON.stringify({ query: query.trim(), max_results: depthToMax(searchDepth), model: selectedModel }),
+        body: JSON.stringify({ 
+          query: query.trim(), 
+          max_results: depthToMax(searchDepth), 
+          model: selectedModel,
+          sources: selectedSources
+        }),
         signal: abortControllerRef.current.signal
       });
       if (response.status === 202) {
@@ -216,6 +248,26 @@ const SearchPage = () => {
     { id: 'o3-pro', name: 'O3 Pro', badge: 'Premium', requiresKey: true }
   ];
 
+  const sources = [
+    { id: 'arxiv', name: 'arXiv', description: 'Physics, Math, CS, Biology', icon: '📚' },
+    { id: 'pubmed', name: 'PubMed', description: 'Biomedical & Life Sciences', icon: '🏥' },
+    { id: 'openalex', name: 'OpenAlex', description: 'Multidisciplinary Research', icon: '🔬' }
+  ];
+
+  const toggleSource = (sourceId) => {
+    const newSources = selectedSources.includes(sourceId)
+      ? selectedSources.filter(s => s !== sourceId)
+      : [...selectedSources, sourceId];
+    
+    // Ensure at least one source is selected
+    if (newSources.length === 0) return;
+    
+    setSelectedSources(newSources);
+    try {
+      localStorage.setItem('selected_sources', JSON.stringify(newSources));
+    } catch {}
+  };
+
   // Enhanced keyboard navigation
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -262,14 +314,14 @@ const SearchPage = () => {
   }
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <div ref={containerRef} className="min-h-svh bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       {/* Animated background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -left-40 w-80 h-80 bg-blue-500/20 rounded-full blur-3xl animate-pulse" />
         <div className="absolute -bottom-40 -right-40 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
       </div>
 
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-4">
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-svh p-4 pt-safe pb-safe">
         {/* Header */}
         <div ref={titleRef} className="text-center mb-12">
           <div className="inline-flex items-center gap-2 mb-4 px-3 py-1 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full border border-white/10">
@@ -299,10 +351,14 @@ const SearchPage = () => {
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={handleKeyDown}
                     className="w-full h-14 bg-transparent text-white pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-lg placeholder:text-gray-500 transition-all duration-200"
-                    placeholder={query ? "" : "Ask me anything about research..."}
+                    placeholder={query ? "" : "Ask me anything..."}
                     aria-label="Search query"
                     autoComplete="off"
-                    spellCheck="true"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck="false"
+                    inputMode="search"
+                    enterKeyHint="search"
                     maxLength="500"
                     aria-describedby="search-help"
                     role="combobox"
@@ -345,9 +401,9 @@ const SearchPage = () => {
                 </button>
               </div>
 
-              {/* Quick Settings Bar */}
-              <div className="flex items-center justify-between px-4 py-2 border-t border-white/5 mt-2">
-                <div className="flex items-center gap-2">
+               {/* Quick Settings Bar */}
+               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t border-white/5 mt-2">
+                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => setShowSettings(!showSettings)}
                     className="flex items-center gap-1 px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors"
@@ -367,9 +423,10 @@ const SearchPage = () => {
                     <span>{apiKey ? 'API Key Set' : 'Add API Key'}</span>
                   </button>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-gray-400">
+                 <div className="flex items-center gap-2 text-xs text-gray-400 mt-1 sm:mt-0">
                   <span className="px-2 py-1 bg-white/5 rounded">{selectedModel}</span>
                   <span className={`px-2 py-1 bg-white/5 rounded ${depthConfig[searchDepth].color}`}>{depthConfig[searchDepth].label}</span>
+                  <span className="px-2 py-1 bg-white/5 rounded text-emerald-400">{selectedSources.length} source{selectedSources.length !== 1 ? 's' : ''}</span>
                 </div>
               </div>
             </div>
@@ -386,7 +443,7 @@ const SearchPage = () => {
                 <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded">Configure your search</span>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-6">
                 {/* Search Depth with better descriptions */}
                 <div className="space-y-4">
                   <div>
@@ -469,6 +526,40 @@ const SearchPage = () => {
                     ))}
                   </div>
                 </div>
+
+                {/* API Sources Selection */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">API Sources</label>
+                    <p className="text-xs text-gray-400 mb-3">Choose which databases to search</p>
+                  </div>
+                  <div className="space-y-2">
+                    {sources.map((source) => (
+                      <button
+                        key={source.id}
+                        onClick={() => toggleSource(source.id)}
+                        className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${
+                          selectedSources.includes(source.id)
+                            ? 'bg-emerald-500/10 border-emerald-500/30 ring-1 ring-emerald-500/20'
+                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-lg ${selectedSources.includes(source.id) ? 'bg-emerald-500/20' : 'bg-white/10'}`}>
+                            <span className="text-lg" aria-hidden="true">{source.icon}</span>
+                          </div>
+                          <div className="text-left">
+                            <div className="text-sm font-medium text-white">{source.name}</div>
+                            <div className="text-xs text-gray-400">{source.description}</div>
+                          </div>
+                        </div>
+                        {selectedSources.includes(source.id) && (
+                          <Check className="w-4 h-4 text-emerald-400" aria-hidden="true" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Add quick reset button */}
@@ -477,9 +568,11 @@ const SearchPage = () => {
                   onClick={() => {
                     setSearchDepth('low');
                     setSelectedModel('gpt-5-mini');
+                    setSelectedSources(['arxiv', 'pubmed', 'openalex']);
                     try {
                       localStorage.setItem('search_depth', 'low');
                       localStorage.setItem('model_name', 'gpt-5-mini');
+                      localStorage.setItem('selected_sources', JSON.stringify(['arxiv', 'pubmed', 'openalex']));
                     } catch {}
                   }}
                   className="text-xs text-gray-400 hover:text-gray-300 transition-colors"
@@ -521,7 +614,7 @@ const SearchPage = () => {
 
         {/* Add suggestions dropdown */}
         {showSuggestions && suggestions.length > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800/95 backdrop-blur-xl rounded-xl border border-white/10 shadow-2xl z-50 overflow-hidden">
+          <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800/95 backdrop-blur-xl rounded-xl border border-white/10 shadow-2xl z-50 overflow-auto max-h-[50svh]">
             {suggestions.map((suggestion, index) => (
               <button
                 key={suggestion}
@@ -577,7 +670,7 @@ const SearchPage = () => {
       </a>
 
       {/* Add keyboard shortcuts hint */}
-      <div className="mt-8 text-center">
+      <div className="mt-8 text-center mb-safe">
         <p className="text-xs text-gray-500">
           <kbd className="px-2 py-1 bg-white/10 rounded text-xs">Enter</kbd> to search •
           <kbd className="px-2 py-1 bg-white/10 rounded text-xs ml-2">↑↓</kbd> to navigate suggestions

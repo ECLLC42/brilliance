@@ -121,7 +121,7 @@ const ResultsPage = ({ results, onBack }) => {
 
   if (!results || !results.synthesis) {
     return (
-      <div ref={containerRef} className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+      <div ref={containerRef} className="min-h-svh bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4 pb-safe">
         <div ref={contentRef} className="text-center">
           <div className="text-6xl mb-4">🤔</div>
           <h2 className="text-2xl font-bold text-white mb-2">No Results Found</h2>
@@ -136,7 +136,7 @@ const ResultsPage = ({ results, onBack }) => {
   }
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
+    <div ref={containerRef} className="min-h-svh bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 pt-safe pb-safe">
       {/* Background effects */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse"></div>
@@ -204,7 +204,7 @@ const ResultsPage = ({ results, onBack }) => {
       </div>
 
       {/* Footer notice: free tier / API key */}
-      <div className="fixed inset-x-0 bottom-2 z-50 flex justify-center px-3">
+      <div className="fixed inset-x-0 bottom-2 z-50 flex justify-center px-3 mb-safe">
         <div className="text-[11px] md:text-xs text-gray-200 bg-black/50 border border-white/10 rounded-md px-3 py-2 backdrop-blur-sm">
           This beta is limited to 2 questions on low/med resource settings. To enable o3-pro, use your API key to start or contact the creator.
         </div>

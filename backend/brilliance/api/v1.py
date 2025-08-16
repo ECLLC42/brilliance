@@ -265,6 +265,17 @@ def create_app() -> Flask:
         query = (payload.get("query") or "").strip()
         max_results_raw = payload.get("max_results", 3)
         model = (payload.get("model") or "").strip() or None
+        sources = payload.get("sources", ["arxiv", "pubmed", "openalex"])
+        
+        # Validate sources parameter
+        valid_sources = ["arxiv", "pubmed", "openalex"]
+        if not isinstance(sources, list) or not sources:
+            sources = ["arxiv", "pubmed", "openalex"]
+        else:
+            sources = [s for s in sources if s in valid_sources]
+            if not sources:
+                return {"error": "At least one valid source must be selected. Valid sources: arxiv, pubmed, openalex"}, 400
+        
         # Reasoning/verbosity controls (default to high reasoning if unspecified)
         def _norm_effort(val: str | None) -> str | None:
             if not val:
@@ -317,6 +328,7 @@ def create_app() -> Flask:
                     "user_query": query,
                     "max_results": max_results,
                     "model": model,
+                    "sources": sources,
                 })
                 return {"task_id": task.id, "status": "queued"}, 202
             except Exception as exc:
@@ -329,6 +341,7 @@ def create_app() -> Flask:
                     user_query=query,
                     max_results=max_results,
                     model=model,
+                    sources=sources,
                     reasoning_effort=reasoning_effort,
                     verbosity=verbosity,
                 )

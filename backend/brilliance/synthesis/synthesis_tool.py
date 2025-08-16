@@ -1,7 +1,7 @@
 # synthesis_tool.py
 from logging import basicConfig, INFO
 from agents import Agent, Runner, output_guardrail, GuardrailFunctionOutput, RunContextWrapper, RunConfig
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Optional
 import os
 
 basicConfig(level=INFO)
@@ -157,7 +157,7 @@ async def synthesis_output_guardrail(
     # Do not hard-fail on formatting issues; surface them as info only
     return GuardrailFunctionOutput(output_info={"issues": issues, "word_count": main_wc}, tripwire_triggered=False)
 
-async def synthesize_papers_async(papers_text: str, model: str | None = None, user_api_key: str | None = None, reasoning_effort: str | None = None, verbosity: str | None = None) -> str:
+async def synthesize_papers_async(papers_text: str, model: Optional[str] = None, user_api_key: Optional[str] = None, reasoning_effort: Optional[str] = None, verbosity: Optional[str] = None) -> str:
     """Async version - Summarize arXiv papers into a short explanatory overview with citations."""
     chosen_model = model or os.getenv("SUMMARIZER_MODEL", "gpt-5-mini")
     summarizer = _build_summarizer(chosen_model)

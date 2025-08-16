@@ -7,7 +7,7 @@ Converts natural language research questions into optimized academic keyword sea
 
 from agents import Agent, Runner
 import os
-from typing import List
+from typing import List, Optional, Union
 from dataclasses import dataclass
 from datetime import datetime
 import re
@@ -63,7 +63,7 @@ def _build_optimizer_agent(model: str) -> Agent:
     )
 
 
-async def optimize_query_with_agent(user_query: str, model: str | None = None) -> OptimizedQuery:
+async def optimize_query_with_agent(user_query: str, model: Optional[str] = None) -> OptimizedQuery:
     """
     Use the academic query optimizer agent to transform natural language into optimized keywords.
     
@@ -176,6 +176,6 @@ def _fallback_optimization(user_query: str) -> OptimizedQuery:
 
 
 # Convenience function for synchronous usage
-async def optimize_academic_query(user_query: str, model: str | None = None) -> OptimizedQuery:
+async def optimize_academic_query(user_query: str, model: Optional[str] = None) -> OptimizedQuery:
     """Public API used by the rest of the codebase."""
     return await optimize_query_with_agent(user_query, model)

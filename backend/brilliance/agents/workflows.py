@@ -7,8 +7,10 @@ import argparse
 import asyncio
 import os
 from datetime import datetime
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from brilliance.agents.research_agent import run_research_agent
+from brilliance.agents.query_optimizer_agent import optimize_academic_query
+from brilliance.agents.build_query import build_api_queries
 from brilliance.tools.arxiv import search_arxiv as _search_arxiv
 from brilliance.tools.pubmed import search_pubmed as _search_pubmed
 from brilliance.tools.openalex import search_openalex as _search_openalex
@@ -16,54 +18,98 @@ from brilliance.synthesis.synthesis_tool import synthesize_papers_async
 from brilliance.celery_app import celery_app
 
 
-async def multi_source_search(query: str, max_results: int = 3, model: str | None = None, user_api_key: str | None = None, reasoning_effort: str | None = None, verbosity: str | None = None) -> Dict[str, Any]:
+async def multi_source_search(query: str, max_results: int = 3, model: Optional[str] = None, user_api_key: Optional[str] = None, reasoning_effort: Optional[str] = None, verbosity: Optional[str] = None, sources: Optional[List[str]] = None, optimized_query=None, api_queries=None) -> Dict[str, Any]:
     """Fetch research results from sources.
 
     Strategy is controlled by RESEARCH_STRATEGY env var:
     - "agent" (default): use the planning agent to choose sources
     - "all"/"all_sources"/"direct": fetch arXiv, PubMed, and OpenAlex directly
+    
+    Args:
+        sources: List of sources to search. If None, defaults to all sources.
     """
+    # Default to all sources if none specified
+    if sources is None:
+        sources = ["arxiv", "pubmed", "openalex"]
+    
     strategy = (os.getenv("RESEARCH_STRATEGY", "agent") or "agent").strip().lower()
     if strategy in ("all", "all_sources", "direct"):
         results: Dict[str, Any] = {"arxiv": "No results", "pubmed": "No results", "openalex": "No results"}
         used: List[str] = []
+        
+        # Use optimized queries if available, otherwise fall back to raw query
+        search_query = query
+        if api_queries and optimized_query:
+            print(f"🚀 Using optimized API-specific queries")
+        else:
+            print(f"🔍 Using direct query search")
+        
         # arXiv
-        try:
-            results["arxiv"] = _search_arxiv(query, max_results)
-            if results["arxiv"] and not results["arxiv"].startswith("Error") and results["arxiv"].strip() != "No papers found.":
-                used.append("arxiv")
-        except Exception:
-            pass
-        # PubMed
-        try:
-            results["pubmed"] = _search_pubmed(query, max_results)
-            if results["pubmed"] and not results["pubmed"].startswith("Error") and results["pubmed"].strip() != "No papers found.":
-                used.append("pubmed")
-        except Exception:
-            pass
+        if "arxiv" in sources:
+            try:
+                if api_queries and "arxiv" in api_queries:
+                    # Use the full optimized arXiv URL
+                    results["arxiv"] = _search_arxiv(api_queries["arxiv"], max_results)
+                else:
+                    results["arxiv"] = _search_arxiv(search_query, max_results)
+                if results["arxiv"] and not results["arxiv"].startswith("Error") and results["arxiv"].strip() != "No papers found.":
+                    used.append("arxiv")
+            except Exception:
+                pass
+        # PubMed  
+        if "pubmed" in sources:
+            try:
+                if api_queries and "pubmed" in api_queries and isinstance(api_queries["pubmed"], dict):
+                    # PubMed requires special handling for complex queries
+                    results["pubmed"] = _search_pubmed(search_query, max_results)  # Keep simple for now
+                else:
+                    results["pubmed"] = _search_pubmed(search_query, max_results)
+                if results["pubmed"] and not results["pubmed"].startswith("Error") and results["pubmed"].strip() != "No papers found.":
+                    used.append("pubmed")
+            except Exception:
+                pass
         # OpenAlex
-        try:
-            results["openalex"] = _search_openalex(query, max_results)
-            if results["openalex"] and not results["openalex"].startswith("Error") and results["openalex"].strip() != "No papers found.":
-                used.append("openalex")
-        except Exception:
-            pass
+        if "openalex" in sources:
+            try:
+                if api_queries and "openalex" in api_queries:
+                    # Use the full optimized OpenAlex URL
+                    results["openalex"] = _search_openalex(api_queries["openalex"], max_results)
+                else:
+                    results["openalex"] = _search_openalex(search_query, max_results)
+                if results["openalex"] and not results["openalex"].startswith("Error") and results["openalex"].strip() != "No papers found.":
+                    used.append("openalex")
+            except Exception:
+                pass
         return {
             **results,
             "original_query": query,
             "used_sources": used,
             "agent_summary": "direct: fetched arXiv, PubMed, OpenAlex",
+            "optimized_query": optimized_query,
+            "api_queries": api_queries,
         }
 
     # Agent-planned strategy (default)
-    agent_out = await run_research_agent(query, max_results, model, user_api_key=user_api_key, reasoning_effort=reasoning_effort, verbosity=verbosity)
+    agent_out = await run_research_agent(query, max_results, model, user_api_key=user_api_key, reasoning_effort=reasoning_effort, verbosity=verbosity, enabled_sources=sources)
+    
+    # Filter agent results to only include enabled sources
+    filtered_results = {}
+    for source in ["arxiv", "pubmed", "openalex"]:
+        if source in sources:
+            filtered_results[source] = agent_out.sources.get(source, "No results")
+        else:
+            filtered_results[source] = "No results"
+    
+    # Filter used sources to only include enabled ones
+    filtered_used_sources = [s for s in agent_out.used_sources if s in sources]
+    
     return {
-        "arxiv": agent_out.sources.get("arxiv", "No results"),
-        "pubmed": agent_out.sources.get("pubmed", "No results"),
-        "openalex": agent_out.sources.get("openalex", "No results"),
+        **filtered_results,
         "original_query": query,
-        "used_sources": agent_out.used_sources,
+        "used_sources": filtered_used_sources,
         "agent_summary": agent_out.summary,
+        "optimized_query": optimized_query,
+        "api_queries": api_queries,
     }
 
 
@@ -193,21 +239,44 @@ def rank_and_trim_results(all_results: Dict[str, Any], query: str, max_total: in
         return all_results
 
 
-async def orchestrate_research(user_query: str, max_results: int = 3, model: str | None = None, user_api_key: str | None = None, reasoning_effort: str | None = None, verbosity: str | None = None) -> Dict[str, Any]:
+async def orchestrate_research(user_query: str, max_results: int = 3, model: Optional[str] = None, user_api_key: Optional[str] = None, reasoning_effort: Optional[str] = None, verbosity: Optional[str] = None, sources: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Main orchestration function for research queries with optimization.
     
     Args:
         user_query: Natural language research question
         max_results: Maximum results per source
+        sources: List of sources to search. If None, defaults to all sources.
         
     Returns:
         Comprehensive research results with optimization metadata and synthesis
     """
     print(f"🔍 Optimizing query (len={len(user_query)})")
     
-    # Search across sources with optimization
-    search_results = await multi_source_search(user_query, max_results, model, user_api_key=user_api_key, reasoning_effort=reasoning_effort, verbosity=verbosity)
+    # Step 1: Query optimization - extract keywords and build structured query
+    try:
+        optimized_query = await optimize_academic_query(user_query, model)
+        print(f"📝 Extracted {len(optimized_query.keywords)} keywords: {', '.join(optimized_query.keywords[:5])}{'...' if len(optimized_query.keywords) > 5 else ''}")
+        
+        # Step 2: Build API-specific queries from optimized keywords
+        api_queries = build_api_queries(optimized_query, max_results)
+        print(f"🔧 Built optimized queries for {len(api_queries)} APIs")
+        
+    except Exception as e:
+        print(f"⚠️ Query optimization failed: {e}. Falling back to direct search.")
+        optimized_query = None
+        api_queries = None
+    
+    # Step 3: Search across sources with optimization
+    search_results = await multi_source_search(
+        user_query, max_results, model, 
+        user_api_key=user_api_key, 
+        reasoning_effort=reasoning_effort, 
+        verbosity=verbosity, 
+        sources=sources,
+        optimized_query=optimized_query,
+        api_queries=api_queries
+    )
     # Rank globally and trim to the requested max total
     trimmed_results = rank_and_trim_results(search_results, user_query, max_results)
     
@@ -255,7 +324,7 @@ def orchestrate_research_task(payload: dict) -> dict:
     """Celery task thin wrapper that runs the async orchestrator.
 
     Args:
-        payload: {"user_query": str, "max_results": int, "model": Optional[str], "user_api_key": Optional[str]}
+        payload: {"user_query": str, "max_results": int, "model": Optional[str], "user_api_key": Optional[str], "sources": Optional[List[str]]}
     Returns:
         Dict with final results (same as orchestrate_research)
     """
@@ -265,8 +334,9 @@ def orchestrate_research_task(payload: dict) -> dict:
     max_results = int(payload.get("max_results", 3))
     model = payload.get("model")
     user_api_key = payload.get("user_api_key")
+    sources = payload.get("sources")
 
-    return asyncio.run(orchestrate_research(user_query=user_query, max_results=max_results, model=model, user_api_key=user_api_key))
+    return asyncio.run(orchestrate_research(user_query=user_query, max_results=max_results, model=model, user_api_key=user_api_key, sources=sources))
 
 
 if __name__ == "__main__":
