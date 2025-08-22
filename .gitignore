@@ -27,10 +27,11 @@ dist/
 *.egg-info/
 *.egg
 
-# Node / React
+# Frontend (separate repository)
+frontend/
+
+# Node / React (if any backend Node.js tools)
 node_modules/
-frontend/build/
-frontend/dist/
 *.log
 
 # Coverage & test outputs
@@ -61,7 +62,11 @@ logs/
 log/
 temp/
 tmp/
-# Keep frontend build artifacts ignored, but include the source
- 
+# Misc directories
 codex/
+
+# Frontend deployment configs (use frontend repo instead)
 .vercel
+
+# Deployment documentation (for reference)
+# Keep deployment docs in main repo
