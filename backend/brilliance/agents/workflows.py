@@ -28,9 +28,9 @@ async def multi_source_search(query: str, max_results: int = 3, model: Optional[
     Args:
         sources: List of sources to search. If None, defaults to all sources.
     """
-    # Default to all sources if none specified
+    # Default to arXiv + OpenAlex if none specified
     if sources is None:
-        sources = ["arxiv", "pubmed", "openalex"]
+        sources = ["arxiv", "openalex"]
     
     strategy = (os.getenv("RESEARCH_STRATEGY", "agent") or "agent").strip().lower()
     if strategy in ("all", "all_sources", "direct"):
@@ -239,7 +239,7 @@ def rank_and_trim_results(all_results: Dict[str, Any], query: str, max_total: in
         return all_results
 
 
-async def orchestrate_research(user_query: str, max_results: int = 3, model: Optional[str] = None, user_api_key: Optional[str] = None, reasoning_effort: Optional[str] = None, verbosity: Optional[str] = None, sources: Optional[List[str]] = None) -> Dict[str, Any]:
+async def orchestrate_research(user_query: str, max_results: int = 12, model: Optional[str] = None, user_api_key: Optional[str] = None, reasoning_effort: Optional[str] = None, verbosity: Optional[str] = None, sources: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Main orchestration function for research queries with optimization.
     

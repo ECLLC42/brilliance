@@ -21,7 +21,7 @@ _quota_store: Dict[str, Tuple[int, float]] = {}
 _model_quota_store: Dict[str, Tuple[int, float]] = {}
 
 # Depth to per-source result caps used by the frontend defaults
-DEPTH_LIMITS = {"low": 3, "med": 5, "high": 10}
+DEPTH_LIMITS = {"low": 3, "med": 5, "high": 12}
 
 
 def _parse_allowed_origins() -> list[str]:
@@ -248,10 +248,8 @@ def create_app() -> Flask:
 
     @app.get("/limits")
     def limits() -> tuple[dict, int]:
-        client_ip = _get_client_ip()
-        # Allow high depth only for bypassed IPs
-        is_allowed_high = _is_bypassed(client_ip)
-        allowed_depths = ["low", "med"] + (["high"] if is_allowed_high else [])
+        # Expose all depths by default
+        allowed_depths = ["low", "med", "high"]
         return {
             "allowed_depths": allowed_depths,
             "per_source_caps": DEPTH_LIMITS,
@@ -263,14 +261,18 @@ def create_app() -> Flask:
     def research() -> tuple[dict, int]:
         payload = request.get_json(silent=True) or {}
         query = (payload.get("query") or "").strip()
-        max_results_raw = payload.get("max_results", 3)
-        model = (payload.get("model") or "").strip() or None
-        sources = payload.get("sources", ["arxiv", "pubmed", "openalex"])
+        # Default to deep mode (high cap)
+        default_cap = DEPTH_LIMITS.get("high", 12)
+        max_results_raw = payload.get("max_results", default_cap)
+        # Force GPT-5 model
+        model = "gpt-5"
+        # Default to arXiv + OpenAlex
+        sources = payload.get("sources", ["arxiv", "openalex"])
         
         # Validate sources parameter
         valid_sources = ["arxiv", "pubmed", "openalex"]
         if not isinstance(sources, list) or not sources:
-            sources = ["arxiv", "pubmed", "openalex"]
+            sources = ["arxiv", "openalex"]
         else:
             sources = [s for s in sources if s in valid_sources]
             if not sources:
@@ -313,13 +315,7 @@ def create_app() -> Flask:
 
         # Do NOT set user API key in process environment
 
-        # Enforce depth: "high" (> med cap) requires a whitelisted/bypassed IP
-        med_cap = DEPTH_LIMITS.get("med", 5)
-        if max_results > med_cap and not _is_bypassed(client_ip):
-            return {
-                "error": "High depth is restricted.",
-                "allowed_up_to": med_cap,
-            }, 403
+        # No additional depth restriction; high depth is permitted by default
 
         # Optional async mode via Celery
         if os.getenv("ENABLE_ASYNC_JOBS") == "1":

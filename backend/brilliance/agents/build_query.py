@@ -33,29 +33,75 @@ class APIQueryBuilder:
         # Separate single words and phrases
         single_words = [kw for kw in keywords if " " not in kw]
         phrases = [kw for kw in keywords if " " in kw]
-        
-        # Build query parts
-        parts = []
-        
-        # Add phrases with exact matching, scoping each token to its field
-        if phrases:
-            scoped = [f'ti:"{p}"' for p in phrases] + [f'abs:"{p}"' for p in phrases]
-            parts.append("(" + " OR ".join(scoped) + ")")
 
-        # Add single words with broader search, scoping each token
+        # Heuristic: require 1–2 core phrases (AND) to tighten relevance
+        must_groups: List[str] = []
+        optional_groups: List[str] = []
+
+        if phrases:
+            # Prefer domain-anchoring phrases (materials/chemistry) as required terms
+            def _is_domain_anchor(p: str) -> bool:
+                pl = p.lower()
+                return any(tok in pl for tok in [
+                    "material", "catalyst", "alloy", "crystal", "molecule", "molecular",
+                    "synthesis", "adsorption", "band gap", "formation energy", "surfaces",
+                ])
+
+            def _is_gnn_anchor(p: str) -> bool:
+                pl = p.lower()
+                return ("graph" in pl) and any(t in pl for t in ["neural", "gnn", "message passing", "convolution", "attention"])
+
+            anchors = [p for p in phrases if _is_domain_anchor(p)]
+            gnn_phrases = [p for p in phrases if _is_gnn_anchor(p)]
+
+            if anchors:
+                # Require one domain anchor and (if available) one GNN anchor
+                core_phrases = [anchors[0]]
+                if gnn_phrases:
+                    gchoice = gnn_phrases[0]
+                    if gchoice != anchors[0]:
+                        core_phrases.append(gchoice)
+            else:
+                # No domain anchors: require only the first phrase to keep recall high
+                core_phrases = phrases[:1]
+
+            for p in core_phrases:
+                must_groups.append(f"(ti:\"{p}\" OR abs:\"{p}\")")
+
+            # Remaining phrases become optional signals
+            rem_phrases = [p for p in phrases if p not in core_phrases]
+            if rem_phrases:
+                scoped = [f'ti:"{p}"' for p in rem_phrases] + [f'abs:"{p}"' for p in rem_phrases]
+                optional_groups.append("(" + " OR ".join(scoped) + ")")
+
+        # Single-word tokens are optional signals (OR)
         if single_words:
             scoped = [f'ti:"{w}"' for w in single_words] + [f'abs:"{w}"' for w in single_words]
-            parts.append("(" + " OR ".join(scoped) + ")")
-        
-        # Combine all parts
-        if parts:
-            search_query = " OR ".join(parts)
+            optional_groups.append("(" + " OR ".join(scoped) + ")")
+
+        # Detect arXiv subject category codes like cs.LG, stat.ML, math.PR and add as optional cat: filters
+        cat_codes = [kw for kw in keywords if re.match(r"^[a-z-]+\.[A-Za-z]{2,3}$", kw)]
+        if cat_codes:
+            cat_part = " OR ".join(f'cat:{code}' for code in cat_codes)
+            optional_groups.append("(" + cat_part + ")")
+
+        # Build the final boolean search expression
+        if must_groups:
+            # Require must groups; append a single optional OR bucket if present
+            if optional_groups:
+                search_query = " AND ".join(must_groups + ["(" + " OR ".join(optional_groups) + ")"])
+            else:
+                search_query = " AND ".join(must_groups)
         else:
-            search_query = " OR ".join(f'"{kw}"' for kw in keywords)
-        
+            # No phrases -> fall back to broad OR across all tokens
+            if optional_groups:
+                search_query = "(" + " OR ".join(optional_groups) + ")"
+            else:
+                search_query = " OR ".join(f'"{kw}"' for kw in keywords)
+
         # arXiv does not filter by submittedDate inside search_query reliably; rely on sort
         combined_query = f"({search_query})"
-        
+
         # Build final URL
         base_url = "https://export.arxiv.org/api/query"
         params = {
@@ -65,7 +111,7 @@ class APIQueryBuilder:
             "sortBy": "submittedDate",
             "sortOrder": "descending"
         }
-        
+
         query_string = "&".join(f"{k}={quote_plus(str(v))}" for k, v in params.items())
         return f"{base_url}?{query_string}"
     

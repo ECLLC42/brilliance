@@ -159,7 +159,8 @@ async def synthesis_output_guardrail(
 
 async def synthesize_papers_async(papers_text: str, model: Optional[str] = None, user_api_key: Optional[str] = None, reasoning_effort: Optional[str] = None, verbosity: Optional[str] = None) -> str:
     """Async version - Summarize arXiv papers into a short explanatory overview with citations."""
-    chosen_model = model or os.getenv("SUMMARIZER_MODEL", "gpt-5-mini")
+    # Force GPT-5
+    chosen_model = "gpt-5"
     summarizer = _build_summarizer(chosen_model)
     try:
         # Standard run config compatible with OpenAI Agents SDK + optional model settings

@@ -71,9 +71,9 @@ RESEARCH_INSTRUCTIONS = (
 
 
 def _build_research_agent(model: str, enabled_sources: Optional[List[str]] = None) -> Agent:
-    # Default to all sources if none specified
+    # Default to arxiv + openalex if none specified
     if enabled_sources is None:
-        enabled_sources = ["arxiv", "pubmed", "openalex"]
+        enabled_sources = ["arxiv", "openalex"]
     
     # Build tools list based on enabled sources
     tools = []
@@ -125,7 +125,8 @@ def _build_research_agent(model: str, enabled_sources: Optional[List[str]] = Non
 async def run_research_agent(query: str, max_results: int, model: Optional[str] = None, user_api_key: Optional[str] = None, reasoning_effort: Optional[str] = None, verbosity: Optional[str] = None, enabled_sources: Optional[List[str]] = None) -> ResearchOutput:
     """Run the research agent with budgets/guardrails and return structured output."""
     # Use a known model supported by the default OpenAI provider in the Agents SDK
-    chosen_model = model or os.getenv("RESEARCH_MODEL", os.getenv("OPTIMIZER_MODEL", "gpt-5-mini"))
+    # Force GPT-5
+    chosen_model = "gpt-5"
     # Initialize budgets (max tool calls, global seconds, per-source cap from depth)
     max_calls = int(os.getenv("RESEARCH_TOOL_BUDGET", "3") or 3)
     global_secs = int(os.getenv("RESEARCH_GLOBAL_BUDGET_SECS", "90") or 90)

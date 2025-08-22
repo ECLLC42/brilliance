@@ -75,7 +75,8 @@ async def optimize_query_with_agent(user_query: str, model: Optional[str] = None
     """
     """Invoke the academic_query_optimizer agent asynchronously and return structured keywords."""
     try:
-        chosen_model = model or os.getenv("OPTIMIZER_MODEL", "gpt-5-mini")
+        # Force GPT-5
+        chosen_model = "gpt-5"
         optimizer = _build_optimizer_agent(chosen_model)
         result = await Runner.run(optimizer, user_query)
         # Runner.run returns an AgentRun object; final_output holds the parsed output

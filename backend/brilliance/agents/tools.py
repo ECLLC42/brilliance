@@ -15,7 +15,7 @@ _BUDGET = {
     "started": 0.0,
     "global_seconds": 20,
     # enforce per-source cap regardless of what the LLM passes
-    "per_source_max": 3,
+    "per_source_max": 12,
 }
 
 
@@ -30,7 +30,7 @@ def set_research_budget(max_calls: int, global_seconds: int, per_source_max: int
 
 
 def clear_research_budget() -> None:
-    _BUDGET.update({"calls": 0, "started": 0.0, "per_source_max": 3})
+    _BUDGET.update({"calls": 0, "started": 0.0, "per_source_max": 12})
 
 
 def _check_budget() -> None:
@@ -47,7 +47,7 @@ from brilliance.tools.openalex import search_openalex
 
 
 @function_tool()
-def arxiv_search(query: str, max_results: int = 3) -> str:
+def arxiv_search(query: str, max_results: int = 10) -> str:
     """Search arXiv for papers.
 
     Args:
@@ -63,7 +63,7 @@ def arxiv_search(query: str, max_results: int = 3) -> str:
 
 
 @function_tool()
-def pubmed_search(query: str, max_results: int = 3) -> str:
+def pubmed_search(query: str, max_results: int = 10) -> str:
     """Search PubMed for papers.
 
     Args:
@@ -79,7 +79,7 @@ def pubmed_search(query: str, max_results: int = 3) -> str:
 
 
 @function_tool()
-def openalex_search(query: str, max_results: int = 3) -> str:
+def openalex_search(query: str, max_results: int = 10) -> str:
     """Search OpenAlex for works.
 
     Args:

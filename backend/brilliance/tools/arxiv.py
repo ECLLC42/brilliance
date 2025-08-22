@@ -37,98 +37,135 @@ def _build_search_query(query: str) -> str:
     return f"all:{query}"
 
 def _fetch(q: str, max_results: int = 3) -> str:
-    # Allow passing a full arXiv API URL; otherwise build an optimized query
-    if isinstance(q, str) and q.startswith("http"):
-        url = q
-    else:
-        search_query = _build_search_query(q)
-        # Build URL with proper parameter encoding
-        base_url = "https://export.arxiv.org/api/query"
-        params = {
-            'search_query': search_query,
-            'max_results': max_results,
-            'sortBy': 'submittedDate',
-            'sortOrder': 'descending'
-        }
-        # Let httpx handle URL encoding properly
-        url = f"{base_url}?" + "&".join([f"{k}={quote_plus(str(v))}" for k, v in params.items()])
-    
-    try:
-        import os
-        headers = {"User-Agent": os.getenv("HTTP_USER_AGENT", "Brilliance/1.0 (+contact@brilliance)")}
-        
-        for attempt in range(3):
-            try:
-                resp = httpx.get(url, headers=headers, timeout=httpx.Timeout(10.0, connect=5.0))
-                resp.raise_for_status()
-                break
-            except Exception as e:
-                if attempt == 2:
-                    raise
-                import time, random
-                time.sleep((2 ** attempt) + random.random())
-        
-        feed = feedparser.parse(resp.text)
-        
-        # Check for arXiv API errors in the feed
-        if hasattr(feed, 'feed') and hasattr(feed.feed, 'title'):
-            if 'error' in feed.feed.title.lower():
-                return f"arXiv API Error: {feed.feed.title}"
-        
-        if not hasattr(feed, 'entries'):
-            return "No papers found."
-            
-        entries = feed.entries
-            
-    except Exception as e:
-        return f"Error fetching from arXiv: {str(e)}"
-
-    if not entries:
-        return "No papers found."
-
-    parts: List[str] = []
-    # Optional post-filter by min year
+    """
+    Fetch from arXiv. Accepts either a full API URL or a natural-language/fielded query.
+    Adds polite pagination when ARXIV_MIN_YEAR is set so we can still return up to max_results
+    after client-side year filtering. Extracts PDF links when present.
+    """
     import os
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
+    def _build_url(query_or_url: str, start: int, page_size: int) -> str:
+        # If a full URL was provided, patch its start/max_results; otherwise build from query.
+        if isinstance(query_or_url, str) and query_or_url.startswith("http"):
+            parsed = urlparse(query_or_url)
+            qs = parse_qs(parsed.query, keep_blank_values=True)
+            qs["start"] = [str(start)]
+            qs["max_results"] = [str(page_size)]
+            # Ensure sort parameters are present for recency
+            qs.setdefault("sortBy", ["submittedDate"])
+            qs.setdefault("sortOrder", ["descending"])
+            new_q = urlencode(qs, doseq=True)
+            return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_q, parsed.fragment))
+        else:
+            search_query = _build_search_query(query_or_url)
+            base_url = "https://export.arxiv.org/api/query"
+            params = {
+                "search_query": search_query,
+                "start": start,
+                "max_results": page_size,
+                "sortBy": "submittedDate",
+                "sortOrder": "descending",
+            }
+            return f"{base_url}?" + "&".join([f"{k}={quote_plus(str(v))}" for k, v in params.items()])
+
+    def _pdf_link(entry: Any) -> str:
+        try:
+            for link in getattr(entry, "links", []):
+                if getattr(link, "type", "") == "application/pdf":
+                    href = getattr(link, "href", "")
+                    if href:
+                        return str(href).strip()
+        except Exception:
+            pass
+        # Fallback: some feeds include entry.id that can be transformed into a pdf URL
+        try:
+            arx_id = _safe_get_text(entry, "id", "")
+            if arx_id and "/abs/" in arx_id:
+                return arx_id.replace("/abs/", "/pdf/") + ".pdf"
+        except Exception:
+            pass
+        return ""
+
+    # Config / headers
+    headers = {"User-Agent": os.getenv("HTTP_USER_AGENT", "Brilliance/1.0 (+contact@brilliance)")}
+    min_year = 0
     try:
         min_year = int(os.getenv("ARXIV_MIN_YEAR", "0"))
     except Exception:
         min_year = 0
 
-    for entry in entries[:max_results*2]:  # read a bit more, then filter down
+    collected_parts: List[str] = []
+    start = 0
+    # Page size: request a bit more than needed to improve chances after filtering
+    page_size = max(10, min(50, max_results * 2))
+    max_pages = 5  # hard cap to remain polite
+
+    pages_tried = 0
+    last_batch_empty = False
+
+    while len(collected_parts) < max_results and pages_tried < max_pages and not last_batch_empty:
+        url = _build_url(q, start, page_size)
         try:
-            # Safely extract all fields
-            title = _safe_get_text(entry, 'title', 'No title')
-            
-            # Handle year safely
-            published = _safe_get_text(entry, 'published', '')
-            year = published[:4] if len(published) >= 4 else "N/A"
-            
-            # Handle authors safely
-            authors_str = _safe_get_authors(entry)
-            
-            # Handle abstract safely
-            summary = _safe_get_text(entry, 'summary', 'No abstract')
-            
-            # Handle URL safely
-            link = _safe_get_text(entry, 'link', '')
-            
-            # Apply year filter if set
-            if min_year:
+            for attempt in range(3):
                 try:
-                    if year != "N/A" and int(year) < min_year:
-                        continue
+                    resp = httpx.get(url, headers=headers, timeout=httpx.Timeout(10.0, connect=5.0))
+                    resp.raise_for_status()
+                    break
                 except Exception:
-                    pass
+                    if attempt == 2:
+                        raise
+                    import time, random
+                    time.sleep((2 ** attempt) + random.random())
+            feed = feedparser.parse(resp.text)
+            if hasattr(feed, "feed") and hasattr(feed.feed, "title"):
+                if "error" in str(feed.feed.title).lower():
+                    return f"arXiv API Error: {feed.feed.title}"
+            entries = getattr(feed, "entries", [])
+        except Exception as e:
+            return f"Error fetching from arXiv: {str(e)}"
 
-            parts.append(f"{title} ({year}) by {authors_str}\nAbstract: {summary}\nURL: {link}")
-            
-        except Exception:
-            # Skip malformed entries but continue processing others
-            continue
+        if not entries:
+            last_batch_empty = True
+            break
 
-    # Trim to desired max_results after filtering
-    parts = parts[:max_results]
-    return "\n\n".join(parts) if parts else "No papers found."
+        # Collect, applying optional year filter
+        for entry in entries:
+            try:
+                title = _safe_get_text(entry, "title", "No title")
+                published = _safe_get_text(entry, "published", "")
+                year = published[:4] if len(published) >= 4 else "N/A"
+                authors_str = _safe_get_authors(entry)
+                summary = _safe_get_text(entry, "summary", "No abstract")
+                link = _safe_get_text(entry, "link", "")
+                pdf = _pdf_link(entry)
+
+                if min_year:
+                    try:
+                        if year != "N/A" and int(year) < min_year:
+                            continue
+                    except Exception:
+                        # If year can't be parsed, keep it
+                        pass
+
+                part = f"{title} ({year}) by {authors_str}\nAbstract: {summary}\nURL: {link}"
+                if pdf:
+                    part += f"\nPDF: {pdf}"
+                collected_parts.append(part)
+
+                if len(collected_parts) >= max_results:
+                    break
+            except Exception:
+                continue
+
+        pages_tried += 1
+        start += page_size
+
+    if not collected_parts:
+        return "No papers found."
+
+    # Trim to requested count
+    return "\n\n".join(collected_parts[:max_results])
 
 def search_arxiv(query: str, max_results: int = 3) -> str:
     """Search arXiv for papers matching the query."""
