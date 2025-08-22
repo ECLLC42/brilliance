@@ -1,72 +1,43 @@
-# macOS
-.DS_Store
+### Dependencies
+node_modules/
 
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.pyo
-*.pyd
-
-# Virtual environments
-env/
-venv/
-.venv/
-
-# Poetry
-poetry.lock
-
-# Environment & secrets
-.env
-*.env
-
-# Build / distribution
+### Production builds
 build/
 dist/
-*.egg-info/
-*.egg
 
-# Node / React
-node_modules/
-frontend/build/
-frontend/dist/
-*.log
-
-# Coverage & test outputs
-.coverage
-htmlcov/
-coverage.xml
-
-# IDE & editor settings
-.vscode/
-.idea/
-*.swp
-
-# Heroku
-.heroku/
-
-# Database
-*.sqlite3
-
-# Misc
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.vercel
-
-# Additional frontend ignores
+### Testing
 coverage/
+
+### Caches
 .eslintcache
 .parcel-cache/
 .cache/
 .turbo/
 .tmp/
-.tmp/**
+.pnp
+.pnp.js
+
+### Environment files
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
-*.tgz
+
+### Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+### Editor/OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
 Thumbs.db
 .directory
+
+### Hosting/CLI
+.vercel/
