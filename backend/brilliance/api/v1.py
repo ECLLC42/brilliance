@@ -261,8 +261,8 @@ def create_app() -> Flask:
     def research() -> tuple[dict, int]:
         payload = request.get_json(silent=True) or {}
         query = (payload.get("query") or "").strip()
-        # Default to deep mode (high cap)
-        default_cap = DEPTH_LIMITS.get("high", 12)
+        # Default to 10 sources
+        default_cap = 10
         max_results_raw = payload.get("max_results", default_cap)
         # Force GPT-5 model
         model = "gpt-5"
@@ -294,7 +294,7 @@ def create_app() -> Flask:
         try:
             max_results = int(max_results_raw)
         except Exception:
-            max_results = 3
+            max_results = 10
 
         if not query:
             return {"error": "Missing 'query'"}, 400
