@@ -18,7 +18,7 @@ const SearchPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [searchDepth, setSearchDepth] = useState('high');
   const [selectedModel, setSelectedModel] = useState('gpt-5');
-  const [allowedDepths, setAllowedDepths] = useState(['low', 'med']);
+  const [allowedDepths, setAllowedDepths] = useState(['low', 'med', 'high']);
   const [selectedSources, setSelectedSources] = useState(['arxiv', 'openalex']);
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -76,9 +76,30 @@ const SearchPage = () => {
 
 
 
-  // Load saved preferences
+  // Load saved preferences and migrate to new defaults if needed
   useEffect(() => {
     try {
+      // Check for preference version to migrate old users to new defaults
+      const prefsVersion = localStorage.getItem('prefs_version');
+      const currentVersion = '2.1'; // Updated to force migration to new defaults
+      
+      if (prefsVersion !== currentVersion) {
+        // Migrate to new defaults: GPT-5, 10 papers, ArXiv + OpenAlex
+        setSearchDepth('high');
+        setSelectedModel('gpt-5');
+        setSelectedSources(['arxiv', 'openalex']);
+        
+        try {
+          localStorage.setItem('search_depth', 'high');
+          localStorage.setItem('model_name', 'gpt-5');
+          localStorage.setItem('selected_sources', JSON.stringify(['arxiv', 'openalex']));
+          localStorage.setItem('prefs_version', currentVersion);
+        } catch {}
+        
+        return; // Use new defaults, don't load old saved values
+      }
+      
+      // Load existing saved preferences for users with current version
       const savedKey = localStorage.getItem('user_api_key');
       if (savedKey) setApiKey(savedKey);
       const savedDepth = localStorage.getItem('search_depth');
@@ -110,7 +131,7 @@ const SearchPage = () => {
           }
         }
       } catch (error) {
-        console.log('Failed to fetch examples, using defaults:', error);
+        // Failed to fetch examples, using defaults (error suppressed in production)
         // Keep the default examples if fetch fails
       }
     };
@@ -425,7 +446,7 @@ const SearchPage = () => {
                 </div>
                  <div className="flex items-center gap-2 text-xs text-gray-400 mt-1 sm:mt-0">
                   <span className="px-2 py-1 bg-white/5 rounded">{selectedModel}</span>
-                  <span className={`px-2 py-1 bg-white/5 rounded ${depthConfig[searchDepth].color}`}>{depthConfig[searchDepth].label}</span>
+                  <span className={`px-2 py-1 bg-white/5 rounded ${depthConfig[searchDepth].color}`}>{depthConfig[searchDepth].papers}</span>
                   <span className="px-2 py-1 bg-white/5 rounded text-emerald-400">{selectedSources.length} source{selectedSources.length !== 1 ? 's' : ''}</span>
                 </div>
               </div>
@@ -573,6 +594,7 @@ const SearchPage = () => {
                       localStorage.setItem('search_depth', 'high');
                       localStorage.setItem('model_name', 'gpt-5');
                       localStorage.setItem('selected_sources', JSON.stringify(['arxiv', 'openalex']));
+                      localStorage.setItem('prefs_version', '2.1');
                     } catch {}
                   }}
                   className="text-xs text-gray-400 hover:text-gray-300 transition-colors"
