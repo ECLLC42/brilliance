@@ -283,12 +283,23 @@ async def orchestrate_research(user_query: str, max_results: int = 12, model: Op
     # Prepare results for agent synthesis (no manual ranking)
     final_results = prepare_results_for_synthesis(trimmed_results)
     
-    # Add optimization summary
-    final_results["optimization"] = {
+    # Add optimization summary (remove complex objects for Celery JSON serialization)
+    optimized_query = search_results.get("optimized_query")
+    optimization_summary = {
         "original_query": search_results.get("original_query"),
-        "optimized_query": search_results.get("optimized_query"),
-        "api_queries_built": bool(search_results.get("optimized_query"))
+        "api_queries_built": bool(optimized_query)
     }
+    
+    # Only include detailed optimized_query if not in Celery context (to avoid JSON serialization issues)
+    if optimized_query and not os.getenv("ENABLE_ASYNC_JOBS"):
+        optimization_summary["optimized_query"] = optimized_query
+    elif optimized_query:
+        # For async/Celery mode, include summary but not the full object
+        optimization_summary["keywords_count"] = len(getattr(optimized_query, 'keywords', []))
+        optimization_summary["has_disease_terms"] = bool(getattr(optimized_query, 'disease_terms', []))
+        optimization_summary["has_intervention_terms"] = bool(getattr(optimized_query, 'intervention_terms', []))
+    
+    final_results["optimization"] = optimization_summary
     
     # AI Synthesis Step
     if 'raw_results' in final_results and any(
