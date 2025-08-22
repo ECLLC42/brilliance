@@ -16,10 +16,10 @@ const SearchPage = () => {
   const [apiKey, setApiKey] = useState('');
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [searchDepth, setSearchDepth] = useState('low');
-  const [selectedModel, setSelectedModel] = useState('gpt-5-mini');
+  const [searchDepth, setSearchDepth] = useState('high');
+  const [selectedModel, setSelectedModel] = useState('gpt-5');
   const [allowedDepths, setAllowedDepths] = useState(['low', 'med']);
-  const [selectedSources, setSelectedSources] = useState(['arxiv', 'pubmed', 'openalex']);
+  const [selectedSources, setSelectedSources] = useState(['arxiv', 'openalex']);
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
@@ -566,13 +566,13 @@ const SearchPage = () => {
               <div className="mt-6 pt-4 border-t border-white/10">
                 <button
                   onClick={() => {
-                    setSearchDepth('low');
-                    setSelectedModel('gpt-5-mini');
-                    setSelectedSources(['arxiv', 'pubmed', 'openalex']);
+                    setSearchDepth('high');
+                    setSelectedModel('gpt-5');
+                    setSelectedSources(['arxiv', 'openalex']);
                     try {
-                      localStorage.setItem('search_depth', 'low');
-                      localStorage.setItem('model_name', 'gpt-5-mini');
-                      localStorage.setItem('selected_sources', JSON.stringify(['arxiv', 'pubmed', 'openalex']));
+                      localStorage.setItem('search_depth', 'high');
+                      localStorage.setItem('model_name', 'gpt-5');
+                      localStorage.setItem('selected_sources', JSON.stringify(['arxiv', 'openalex']));
                     } catch {}
                   }}
                   className="text-xs text-gray-400 hover:text-gray-300 transition-colors"
