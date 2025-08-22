@@ -4,6 +4,7 @@ python-dotenv==1.0.1
 httpx==0.27.0
 feedparser==6.0.10
 gunicorn==21.2.0
+psutil==5.9.8
 
 # Agents stack (left flexible to avoid version conflicts)
 openai-agents

@@ -178,6 +178,40 @@ def create_app() -> Flask:
     def health() -> tuple[dict, int]:
         return {"status": "ok"}, 200
 
+    @app.get("/health/detailed")
+    def detailed_health() -> tuple[dict, int]:
+        import psutil
+        import time
+        
+        checks = {
+            "status": "ok",
+            "timestamp": time.time(),
+            "process_id": os.getpid(),
+            "memory_usage_mb": round(psutil.Process().memory_info().rss / 1024 / 1024, 2),
+            "uptime_seconds": round(time.time() - psutil.Process().create_time(), 2)
+        }
+        
+        # Check Redis connection if Celery is enabled
+        if os.getenv("ENABLE_ASYNC_JOBS") == "1":
+            try:
+                import redis
+                redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+                redis_client.ping()
+                checks["redis"] = "connected"
+            except Exception as e:
+                checks["redis"] = f"error: {str(e)}"
+                checks["status"] = "degraded"
+        
+        # Check environment
+        checks["environment"] = {
+            "flask_env": os.getenv("FLASK_ENV", "development"),
+            "log_level": os.getenv("LOG_LEVEL", "INFO"),
+            "workers": os.getenv("WEB_CONCURRENCY", "auto")
+        }
+        
+        status_code = 200 if checks["status"] == "ok" else 503
+        return checks, status_code
+
     # Enforce HTTPS and add security headers
     @app.before_request
     def _enforce_https():

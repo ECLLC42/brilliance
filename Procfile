@@ -1,3 +1,2 @@
-web: PYTHONPATH=backend gunicorn backend.brilliance.api.v1:app --bind 0.0.0.0:$PORT --workers 3 --threads 4 --timeout 60
-worker: PYTHONPATH=backend celery -A brilliance.celery_app:celery_app worker --loglevel=info
-heroku restart
+web: PYTHONPATH=backend gunicorn backend.brilliance.api.v1:app --bind 0.0.0.0:$PORT --workers 3 --threads 4 --timeout 60 --graceful-timeout 30 --keep-alive 2 --max-requests 1000 --max-requests-jitter 100 --preload --access-logfile - --error-logfile - --log-level warning
+worker: PYTHONPATH=backend celery -A brilliance.celery_app:celery_app worker --loglevel=warning --without-heartbeat --without-gossip
