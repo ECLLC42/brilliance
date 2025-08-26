@@ -290,11 +290,9 @@ async def orchestrate_research(user_query: str, max_results: int = 12, model: Op
         "api_queries_built": bool(optimized_query)
     }
     
-    # Only include detailed optimized_query if not in Celery context (to avoid JSON serialization issues)
-    if optimized_query and not os.getenv("ENABLE_ASYNC_JOBS"):
-        optimization_summary["optimized_query"] = optimized_query
-    elif optimized_query:
-        # For async/Celery mode, include summary but not the full object
+    # Include optimized_query - now JSON serializable
+    if optimized_query:
+        optimization_summary["optimized_query"] = optimized_query.to_dict() if hasattr(optimized_query, 'to_dict') else optimized_query
         optimization_summary["keywords_count"] = len(getattr(optimized_query, 'keywords', []))
         optimization_summary["has_disease_terms"] = bool(getattr(optimized_query, 'disease_terms', []))
         optimization_summary["has_intervention_terms"] = bool(getattr(optimized_query, 'intervention_terms', []))

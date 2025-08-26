@@ -9,7 +9,36 @@ Broker and backend are taken from environment variables in this order:
 from __future__ import annotations
 
 import os
+import json
 from celery import Celery
+from kombu.serialization import register
+
+
+class OptimizedQueryEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle OptimizedQuery objects."""
+    def default(self, obj):
+        # Import here to avoid circular imports
+        try:
+            from brilliance.agents.query_optimizer_agent import OptimizedQuery
+            if isinstance(obj, OptimizedQuery):
+                return obj.to_dict()
+        except ImportError:
+            pass
+        return super().default(obj)
+
+
+def dumps(obj):
+    """Custom JSON dumps function with OptimizedQuery support."""
+    return json.dumps(obj, cls=OptimizedQueryEncoder)
+
+
+def loads(s):
+    """Custom JSON loads function."""
+    return json.loads(s)
+
+
+# Register the custom serializer
+register('optimized_json', dumps, loads, content_type='application/json', content_encoding='utf-8')
 
 
 def _redis_url_default() -> str:
@@ -30,11 +59,11 @@ def make_celery() -> Celery:
         ],
     )
 
-    # Prefer JSON serialization for safety in hosted environments
+    # Use custom JSON serialization to handle OptimizedQuery objects
     app.conf.update(
-        task_serializer="json",
-        result_serializer="json",
-        accept_content=["json"],
+        task_serializer="optimized_json",
+        result_serializer="optimized_json",
+        accept_content=["optimized_json", "json"],
         task_track_started=True,
         result_expires=int(os.getenv("CELERY_RESULT_EXPIRES", "86400")),  # 24h
         worker_hijack_root_logger=False,

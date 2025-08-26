@@ -22,6 +22,22 @@ class OptimizedQuery:
     intervention_terms: List[str]
     outcome_terms: List[str]
     study_type_terms: List[str]
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'keywords': self.keywords,
+            'preferred_year': self.preferred_year,
+            'disease_terms': self.disease_terms,
+            'intervention_terms': self.intervention_terms,
+            'outcome_terms': self.outcome_terms,
+            'study_type_terms': self.study_type_terms
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "OptimizedQuery":
+        """Create from dictionary for JSON deserialization."""
+        return cls(**data)
 
 
 # Create the academic query optimizer agent
