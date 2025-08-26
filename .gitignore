@@ -68,5 +68,8 @@ codex/
 # Frontend deployment configs (use frontend repo instead)
 .vercel
 
+# Additional deployment configs
+.venv
+
 # Deployment documentation (for reference)
 # Keep deployment docs in main repo
