@@ -127,9 +127,9 @@ async def run_research_agent(query: str, max_results: int, model: Optional[str] 
     # Use a known model supported by the default OpenAI provider in the Agents SDK
     # Force GPT-5
     chosen_model = "gpt-5"
-    # Initialize budgets (max tool calls, global seconds, per-source cap from depth)
-    max_calls = int(os.getenv("RESEARCH_TOOL_BUDGET", "3") or 3)
-    global_secs = int(os.getenv("RESEARCH_GLOBAL_BUDGET_SECS", "90") or 90)
+    # No budget restrictions - allow unlimited tool calls and time
+    max_calls = 999999  # Effectively unlimited
+    global_secs = 999999  # Effectively unlimited
     per_source_cap = max(1, int(max_results))
     set_research_budget(max_calls=max_calls, global_seconds=global_secs, per_source_max=per_source_cap)
     try:

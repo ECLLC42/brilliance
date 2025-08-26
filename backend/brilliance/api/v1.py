@@ -20,8 +20,8 @@ _quota_store: Dict[str, Tuple[int, float]] = {}
 # Per-IP, per-model quota store: key -> (count, reset_epoch_seconds)
 _model_quota_store: Dict[str, Tuple[int, float]] = {}
 
-# Depth to per-source result caps used by the frontend defaults
-DEPTH_LIMITS = {"low": 3, "med": 5, "high": 12}
+# No depth restrictions - allow unlimited results
+# DEPTH_LIMITS = {"low": 3, "med": 5, "high": 12}  # Removed restrictions
 
 
 def _parse_allowed_origins() -> list[str]:
@@ -282,11 +282,11 @@ def create_app() -> Flask:
 
     @app.get("/limits")
     def limits() -> tuple[dict, int]:
-        # Expose all depths by default
-        allowed_depths = ["low", "med", "high"]
+        # No restrictions - allow unlimited depth and results
+        allowed_depths = ["low", "med", "high", "unlimited"]
         return {
             "allowed_depths": allowed_depths,
-            "per_source_caps": DEPTH_LIMITS,
+            "per_source_caps": {},  # No caps - unlimited
             # Backend uses server-side OPENAI_API_KEY; user-provided keys are not required
             "require_api_key": False,
         }, 200
@@ -295,8 +295,8 @@ def create_app() -> Flask:
     def research() -> tuple[dict, int]:
         payload = request.get_json(silent=True) or {}
         query = (payload.get("query") or "").strip()
-        # Default to 10 sources
-        default_cap = 10
+        # No default cap - allow unlimited results
+        default_cap = 100  # High default, effectively unlimited
         max_results_raw = payload.get("max_results", default_cap)
         # Force GPT-5 model
         model = "gpt-5"
@@ -349,7 +349,7 @@ def create_app() -> Flask:
 
         # Do NOT set user API key in process environment
 
-        # No additional depth restriction; high depth is permitted by default
+        # No restrictions - all depths and unlimited results are permitted
 
         # Optional async mode via Celery
         if os.getenv("ENABLE_ASYNC_JOBS") == "1":
