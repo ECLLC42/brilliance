@@ -1,6 +1,19 @@
-MIT License
+PROPRIETARY SOFTWARE LICENSE
+
+This software and associated documentation files (the "Software") are the 
+property of Elevated Consultants, LLC. All rights reserved.
 
 Copyright (c) 2025 Elevated Consultants, LLC
+
+COMPONENT LICENSING:
+While this software as a whole is proprietary to Elevated Consultants, LLC,
+individual components and modules within this software are licensed under
+the MIT License as detailed below to facilitate development, integration,
+and compliance with open source dependencies.
+
+===============================================================================
+
+MIT License
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,5 +32,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+===============================================================================
+
+USAGE RESTRICTIONS:
+- This software is proprietary to Elevated Consultants, LLC
+- Unauthorized distribution, modification, or use of this software as a whole
+  is strictly prohibited without express written permission from Elevated 
+  Consultants, LLC
+- Individual components may be used in accordance with the MIT License terms
+  above, subject to proper attribution
+
+For licensing inquiries, please contact Elevated Consultants, LLC.
+
 
 
